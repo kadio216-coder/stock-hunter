@@ -6,7 +6,7 @@ import twstock
 
 # --- 1. 頁面設定 ---
 st.set_page_config(page_title="股票型態全能分析", layout="wide")
-st.title("📈 股票型態全能分析")
+st.title("📈 股票型態分析")
 st.markdown("自動偵測：**箱型、W底、M頭、頭肩底、杯柄、圓弧底、旗型、三角收斂** 與 **K線轉折**。")
 
 # --- 2. 側邊欄輸入 ---
