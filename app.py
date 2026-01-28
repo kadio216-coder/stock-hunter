@@ -7,7 +7,7 @@ import twstock
 # --- 1. 頁面設定 ---
 st.set_page_config(page_title="股票型態分析", layout="wide")
 st.title("📈 股票型態分析")
-st.markdown("自動偵測型態，若無型態則顯示 **近期支撐與壓力**。")
+st.markdown("自動偵測型態，並標示 **短線(20日)** 與 **波段(60日)** 之支撐壓力區間。")
 
 # --- 2. 側邊欄輸入 ---
 with st.sidebar:
@@ -15,7 +15,7 @@ with st.sidebar:
     stock_id = st.text_input("輸入股票代號", value="2330.TW")
     st.caption("範例：2330.TW (上市) / 3491.TWO (上櫃)")
     
-    # 功能開關：是否總是顯示支撐壓力線
+    # 功能開關
     show_sr = st.checkbox("顯示支撐/壓力線", value=True)
     
     run_btn = st.button("開始分析", type="primary")
@@ -139,7 +139,7 @@ if run_btn or stock_id:
             ap = []
             h_lines = []
             h_colors = []
-            title_text = f"{stock_id} Analysis" # 預設標題
+            title_text = f"{stock_id} Analysis"
             
             # 中文名稱對照表
             name_map = {
@@ -150,18 +150,14 @@ if run_btn or stock_id:
 
             if signals:
                 display_names = [name_map.get(s['name'], s['name']) for s in signals]
-                
-                # 判斷是否包含賣出訊號
                 if "Double Top (Sell)" in [s['name'] for s in signals]:
                     st.error(f"⚠️ 警告訊號：{' + '.join(display_names)}")
                 else:
                     st.success(f"🔥 發現訊號：{' + '.join(display_names)}")
                 
-                # 更新圖表標題 (用英文避免亂碼)
                 eng_names = [s['name'] for s in signals]
                 title_text = f"{stock_id} Pattern: {' + '.join(eng_names)}"
                 
-                # 準備畫圖參數
                 for sig in signals:
                     if 'levels' in sig:
                         h_lines.extend(sig['levels'])
@@ -172,30 +168,47 @@ if run_btn or stock_id:
             else:
                 st.info("👀 目前無特定型態。")
 
-            # --- 自動畫支撐/壓力線邏輯 ---
-            # 如果使用者勾選「總是顯示」，或者「目前沒有畫任何水平線(無型態)」時觸發
-            if show_sr or not h_lines:
-                recent_high = df['High'].iloc[-60:].max()
-                recent_low = df['Low'].iloc[-60:].min()
+            # --- 自動畫支撐/壓力線邏輯 (短線+波段版) ---
+            if show_sr and not h_lines:
+                # 1. 計算短線 (20日)
+                short_high = df['High'].iloc[-20:].max()
+                short_low = df['Low'].iloc[-20:].min()
+                # 2. 計算波段 (60日)
+                medium_high = df['High'].iloc[-60:].max()
+                medium_low = df['Low'].iloc[-60:].min()
                 
-                # 把這兩條線加進去 (不會覆蓋原本型態的線，而是疊加)
-                h_lines.extend([recent_high, recent_low])
-                h_colors.extend(['orange', 'blue']) # 橘色壓力，藍色支撐
+                # 畫壓力線 (高點)
+                # 如果短線壓力跟長線壓力差不多 (誤差2%內)，就只畫一條長線的，避免重疊
+                if abs(short_high - medium_high) / medium_high > 0.02:
+                    h_lines.append(short_high)
+                    h_colors.append('orange') # 淺橘: 短壓
+                    st.caption(f"🔸 短線壓力 (20日): {short_high:.2f}")
                 
-                if not signals: # 如果沒型態才特別顯示文字提示
-                    st.caption(f"📊 區間參考：壓力 {recent_high:.2f} / 支撐 {recent_low:.2f}")
+                h_lines.append(medium_high)
+                h_colors.append('red') # 深紅: 長壓 (大魔王)
+                
+                # 畫支撐線 (低點)
+                if abs(short_low - medium_low) / medium_low > 0.02:
+                    h_lines.append(short_low)
+                    h_colors.append('skyblue') # 淺藍: 短撐
+                    st.caption(f"🔹 短線支撐 (20日): {short_low:.2f}")
+
+                h_lines.append(medium_low)
+                h_colors.append('blue') # 深藍: 長撐 (鐵板)
+                
+                if not signals:
+                    st.caption(f"📊 波段區間 (60日)：壓力 {medium_high:.2f} / 支撐 {medium_low:.2f}")
 
             # --- 繪圖區 ---
             plot_args = dict(
                 type='candle', 
                 style=s, 
                 volume=True, 
-                mav=(5, 20, 60), # 設定 5日, 20日, 60日均線
+                mav=(5, 20, 60), # 均線：5日, 20日, 60日
                 title=title_text, 
                 returnfig=True
             )
             
-            # 防呆：只有當 h_lines 或 ap 有內容時才傳入
             if h_lines: 
                 plot_args['hlines'] = dict(hlines=h_lines, colors=h_colors, linestyle='-.', linewidths=1.0)
             if ap: 
@@ -208,7 +221,9 @@ if run_btn or stock_id:
             st.markdown("---")
             st.markdown("""
             ### 📝 圖表判讀說明
-            1. **型態偵測**：自動掃描 箱型、W底、M頭、頭肩底、杯柄、圓弧底、三角收斂 及 K線轉折訊號。
+            1. **型態偵測**：自動掃描 9 種經典技術型態 (含買賣訊號)。
             2. **均線代表**：🟦 **藍線 5日** (週線) / 🟧 **橘線 20日** (月線) / 🟩 **綠線 60日** (季線)。
-            3. **關鍵區間**：依據近 60 日波動，🟧 **橘虛線** 為壓力 (區間最高)，🟦 **藍虛線** 為支撐 (區間最低)。
+            3. **關鍵區間**：
+                * **短線 (20日)**：🔸 淺橘虛線 (壓力) / 🔹 淺藍虛線 (支撐)
+                * **波段 (60日)**：🔴 深紅虛線 (壓力) / 🔵 深藍虛線 (支撐)
             """)
