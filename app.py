@@ -5,7 +5,7 @@ import mplfinance as mpf
 import twstock
 
 # --- 1. 頁面設定 ---
-st.set_page_config(page_title="股票全能分析王", layout="wide")
+st.set_page_config(page_title="股票型態分析", layout="wide")
 st.title("📈 股票型態分析")
 st.markdown("自動偵測型態，若無型態則顯示 **近期支撐與壓力**。")
 
@@ -16,7 +16,7 @@ with st.sidebar:
     st.caption("範例：2330.TW (上市) / 3491.TWO (上櫃)")
     
     # 功能開關：是否總是顯示支撐壓力線
-    show_sr = st.checkbox("總是顯示支撐/壓力線", value=True)
+    show_sr = st.checkbox("顯示支撐/壓力線", value=True)
     
     run_btn = st.button("開始分析", type="primary")
 
@@ -173,7 +173,7 @@ if run_btn or stock_id:
                 st.info("👀 目前無特定型態。")
 
             # --- 自動畫支撐/壓力線邏輯 ---
-            # 如果使用者勾選「顯示」，或者「目前沒有畫任何水平線(無型態)」時觸發
+            # 如果使用者勾選「總是顯示」，或者「目前沒有畫任何水平線(無型態)」時觸發
             if show_sr or not h_lines:
                 recent_high = df['High'].iloc[-60:].max()
                 recent_low = df['Low'].iloc[-60:].min()
