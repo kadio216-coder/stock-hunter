@@ -74,11 +74,11 @@ def check_patterns(df):
     if (p2 < p1) and (p2 < p3) and (0.9 < p1/p3 < 1.1):
         signals.append({"name": "Head & Shoulders", "type": "line", "levels": [p2], "colors": ['blue']})
 
-    # 5. 三角收斂
+    # 5. 三角收斂 (已修正：放寬至 10%)
     ma20 = df['Close'].rolling(20).mean()
     std20 = df['Close'].rolling(20).std()
     bw = ((ma20+2*std20) - (ma20-2*std20))/ma20
-    if bw.iloc[-1] < 0.05:
+    if bw.iloc[-1] < 0.10: # <--- 這裡改成了 0.10 (10%)
          signals.append({"name": "Triangle Squeeze", "type": "bollinger", "data": [ma20+2*std20, ma20-2*std20]})
 
     # 6. 杯柄
@@ -211,7 +211,7 @@ if run_btn or stock_id:
             fig, ax = mpf.plot(df.iloc[-120:], **plot_args)
             st.pyplot(fig)
             
-            # --- 底部說明區 (詳細說明版) ---
+            # --- 底部說明區 (完整詳細版) ---
             st.markdown("---")
             st.markdown("""
             ### 📝 圖表判讀說明
