@@ -15,7 +15,7 @@ with st.sidebar:
     stock_id = st.text_input("輸入股票代號", value="2330.TW")
     st.caption("範例：2330.TW (上市) / 3491.TWO (上櫃)")
     
-    # 新增功能：是否顯示支撐壓力線
+    # 功能開關：是否總是顯示支撐壓力線
     show_sr = st.checkbox("總是顯示支撐/壓力線", value=True)
     
     run_btn = st.button("開始分析", type="primary")
@@ -23,6 +23,7 @@ with st.sidebar:
 # --- 3. 核心邏輯 ---
 
 def get_stock_name(symbol):
+    """取得股票中文名稱"""
     try:
         code = symbol.split('.')[0]
         if code in twstock.codes:
@@ -31,6 +32,7 @@ def get_stock_name(symbol):
     return symbol
 
 def get_data(symbol):
+    """下載股價資料"""
     try:
         df = yf.download(symbol, period="1y", progress=False)
         if isinstance(df.columns, pd.MultiIndex):
@@ -39,6 +41,7 @@ def get_data(symbol):
     except: return None
 
 def check_patterns(df):
+    """偵測各種技術型態"""
     signals = []
     today = df.iloc[-1]
     prev = df.iloc[-2]
@@ -50,7 +53,7 @@ def check_patterns(df):
     if amp < 0.15 and today['Close'] > box_high:
         signals.append({"name": "Box Breakout", "type": "box", "levels": [box_high, box_low], "colors": ['blue', 'orange']})
     
-    # 2. W底
+    # 2. W底 (Double Bottom)
     recent_low = df['Low'].iloc[-10:].min()
     prev_low = df['Low'].iloc[-60:-20].min()
     if 0.97 < (recent_low/prev_low) < 1.03 and today['Close'] > recent_low*1.02:
@@ -111,7 +114,7 @@ if run_btn or stock_id:
         df = get_data(stock_id)
         
         if df is None:
-            st.error(f"❌ 找不到 {stock_id} 的資料。")
+            st.error(f"❌ 找不到 {stock_id} 的資料，請確認代號是否正確。")
         else:
             stock_name = get_stock_name(stock_id)
             last_price = df['Close'].iloc[-1]
@@ -119,22 +122,26 @@ if run_btn or stock_id:
             change = last_price - df['Close'].iloc[-2]
             pct_change = (change / df['Close'].iloc[-2]) * 100
             
+            # 顯示資訊看板
             st.subheader(f"{stock_name} ({stock_id})")
             col1, col2, col3 = st.columns(3)
             col1.metric("收盤價", f"{last_price:.2f}", f"{change:.2f} ({pct_change:.2f}%)")
             col2.metric("成交量", f"{int(last_vol/1000)} 張")
             col3.markdown(f"**資料日期**: {df.index[-1].date()}")
             
+            # 執行型態偵測
             signals = check_patterns(df)
             
+            # 設定台股配色 (紅漲綠跌)
             mc = mpf.make_marketcolors(up='r', down='g', edge='inherit', wick='inherit', volume='inherit')
             s = mpf.make_mpf_style(marketcolors=mc, gridstyle=':', y_on_right=True)
             
             ap = []
             h_lines = []
             h_colors = []
-            title_text = f"{stock_id} Analysis"
+            title_text = f"{stock_id} Analysis" # 預設標題
             
+            # 中文名稱對照表
             name_map = {
                 "Box Breakout": "箱型突破", "Double Bottom": "W底", "Double Top (Sell)": "M頭(賣訊)",
                 "Head & Shoulders": "頭肩底", "Triangle Squeeze": "三角收斂", "Cup & Handle": "杯柄型態",
@@ -143,11 +150,18 @@ if run_btn or stock_id:
 
             if signals:
                 display_names = [name_map.get(s['name'], s['name']) for s in signals]
-                st.success(f"🔥 發現訊號：{' + '.join(display_names)}")
                 
+                # 判斷是否包含賣出訊號
+                if "Double Top (Sell)" in [s['name'] for s in signals]:
+                    st.error(f"⚠️ 警告訊號：{' + '.join(display_names)}")
+                else:
+                    st.success(f"🔥 發現訊號：{' + '.join(display_names)}")
+                
+                # 更新圖表標題 (用英文避免亂碼)
                 eng_names = [s['name'] for s in signals]
                 title_text = f"{stock_id} Pattern: {' + '.join(eng_names)}"
                 
+                # 準備畫圖參數
                 for sig in signals:
                     if 'levels' in sig:
                         h_lines.extend(sig['levels'])
@@ -157,24 +171,44 @@ if run_btn or stock_id:
                         ap.append(mpf.make_addplot(sig['data'][1].iloc[-120:], color='gray', alpha=0.5))
             else:
                 st.info("👀 目前無特定型態。")
-                title_text = f"{stock_id} General Analysis"
 
-            # --- 新增功能：若使用者勾選，或沒訊號時，自動畫支撐壓力 ---
-            if show_sr and not h_lines:
-                # 找過去 60 天的最高與最低
+            # --- 自動畫支撐/壓力線邏輯 ---
+            # 如果使用者勾選「總是顯示」，或者「目前沒有畫任何水平線(無型態)」時觸發
+            if show_sr or not h_lines:
                 recent_high = df['High'].iloc[-60:].max()
                 recent_low = df['Low'].iloc[-60:].min()
                 
-                # 加入水平線
-                h_lines = [recent_high, recent_low]
-                h_colors = ['orange', 'blue'] # 橘色壓力，藍色支撐
+                # 把這兩條線加進去 (不會覆蓋原本型態的線，而是疊加)
+                h_lines.extend([recent_high, recent_low])
+                h_colors.extend(['orange', 'blue']) # 橘色壓力，藍色支撐
                 
-                st.caption(f"📊 自動標示關鍵區間：壓力 {recent_high} / 支撐 {recent_low}")
+                if not signals: # 如果沒型態才特別顯示文字提示
+                    st.caption(f"📊 區間參考：壓力 {recent_high:.2f} / 支撐 {recent_low:.2f}")
 
-            # 繪圖
-            plot_args = dict(type='candle', style=s, volume=True, mav=(5, 20, 60), title=title_text, returnfig=True)
-            if h_lines: plot_args['hlines'] = dict(hlines=h_lines, colors=h_colors, linestyle='-.', linewidths=1.0)
-            if ap: plot_args['addplot'] = ap
+            # --- 繪圖區 ---
+            plot_args = dict(
+                type='candle', 
+                style=s, 
+                volume=True, 
+                mav=(5, 20, 60), # 設定 5日, 20日, 60日均線
+                title=title_text, 
+                returnfig=True
+            )
+            
+            # 防呆：只有當 h_lines 或 ap 有內容時才傳入
+            if h_lines: 
+                plot_args['hlines'] = dict(hlines=h_lines, colors=h_colors, linestyle='-.', linewidths=1.0)
+            if ap: 
+                plot_args['addplot'] = ap
 
             fig, ax = mpf.plot(df.iloc[-120:], **plot_args)
             st.pyplot(fig)
+            
+            # --- 底部說明區 ---
+            st.markdown("---")
+            st.markdown("""
+            ### 📝 圖表判讀說明
+            1. **型態偵測**：自動掃描 箱型、W底、M頭、頭肩底、杯柄、圓弧底、三角收斂 及 K線轉折訊號。
+            2. **均線代表**：🟦 **藍線 5日** (週線) / 🟧 **橘線 20日** (月線) / 🟩 **綠線 60日** (季線)。
+            3. **關鍵區間**：依據近 60 日波動，🟧 **橘虛線** 為壓力 (區間最高)，🟦 **藍虛線** 為支撐 (區間最低)。
+            """)
