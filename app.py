@@ -168,43 +168,37 @@ if run_btn or stock_id:
             else:
                 st.info("👀 目前無特定型態。")
 
-            # --- 自動畫支撐/壓力線邏輯 (短線+波段版) ---
-            if show_sr and not h_lines:
-                # 1. 計算短線 (20日)
+            # --- 自動畫支撐/壓力線邏輯 (格式更新版) ---
+            if show_sr or not h_lines:
+                # 1. 計算數值
                 short_high = df['High'].iloc[-20:].max()
                 short_low = df['Low'].iloc[-20:].min()
-                # 2. 計算波段 (60日)
                 medium_high = df['High'].iloc[-60:].max()
                 medium_low = df['Low'].iloc[-60:].min()
                 
-                # 畫壓力線 (高點)
-                # 如果短線壓力跟長線壓力差不多 (誤差2%內)，就只畫一條長線的，避免重疊
+                # 2. 決定是否畫線 (視覺化邏輯不變，避免線條重疊)
                 if abs(short_high - medium_high) / medium_high > 0.02:
                     h_lines.append(short_high)
                     h_colors.append('orange') # 淺橘: 短壓
-                    st.caption(f"🔸 短線壓力 (20日): {short_high:.2f}")
-                
                 h_lines.append(medium_high)
-                h_colors.append('red') # 深紅: 長壓 (大魔王)
+                h_colors.append('red') # 深紅: 長壓
                 
-                # 畫支撐線 (低點)
                 if abs(short_low - medium_low) / medium_low > 0.02:
                     h_lines.append(short_low)
                     h_colors.append('skyblue') # 淺藍: 短撐
-                    st.caption(f"🔹 短線支撐 (20日): {short_low:.2f}")
-
                 h_lines.append(medium_low)
-                h_colors.append('blue') # 深藍: 長撐 (鐵板)
+                h_colors.append('blue') # 深藍: 長撐
                 
-                if not signals:
-                    st.caption(f"📊 波段區間 (60日)：壓力 {medium_high:.2f} / 支撐 {medium_low:.2f}")
+                # 3. 顯示文字 (依照指定格式更新)
+                st.caption(f"🔹 **短線 (20日)**：{short_high:.2f} (壓力) / {short_low:.2f} (支撐)")
+                st.caption(f"📊 **波段 (60日)**：{medium_high:.2f} (壓力) / {medium_low:.2f} (支撐)")
 
             # --- 繪圖區 ---
             plot_args = dict(
                 type='candle', 
                 style=s, 
                 volume=True, 
-                mav=(5, 20, 60), # 均線：5日, 20日, 60日
+                mav=(5, 20, 60), 
                 title=title_text, 
                 returnfig=True
             )
