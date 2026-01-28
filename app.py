@@ -173,7 +173,7 @@ if run_btn or stock_id:
                 st.info("👀 目前無特定型態。")
 
             # --- 自動畫支撐/壓力線邏輯 ---
-            # 如果使用者勾選「總是顯示」，或者「目前沒有畫任何水平線(無型態)」時觸發
+            # 如果使用者勾選「顯示」，或者「目前沒有畫任何水平線(無型態)」時觸發
             if show_sr or not h_lines:
                 recent_high = df['High'].iloc[-60:].max()
                 recent_low = df['Low'].iloc[-60:].min()
