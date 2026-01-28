@@ -168,7 +168,7 @@ if run_btn or stock_id:
             else:
                 st.info("👀 目前無特定型態。")
 
-            # --- 自動畫支撐/壓力線邏輯 (修正版：文字強制顯示) ---
+            # --- 自動畫支撐/壓力線邏輯 (無圖示版) ---
             if show_sr or not h_lines:
                 # 1. 計算數值
                 short_high = df['High'].iloc[-20:].max()
@@ -176,23 +176,22 @@ if run_btn or stock_id:
                 medium_high = df['High'].iloc[-60:].max()
                 medium_low = df['Low'].iloc[-60:].min()
                 
-                # 2. 決定畫線 (視覺優化：若線條太近則只畫長線，避免圖表雜亂)
-                # 注意：這段只影響「圖上的線」，不影響「文字顯示」
+                # 2. 決定畫線
                 if abs(short_high - medium_high) / medium_high > 0.02:
                     h_lines.append(short_high)
-                    h_colors.append('orange') # 淺橘: 短壓
+                    h_colors.append('orange') 
                 h_lines.append(medium_high)
-                h_colors.append('red') # 深紅: 長壓
+                h_colors.append('red') 
                 
                 if abs(short_low - medium_low) / medium_low > 0.02:
                     h_lines.append(short_low)
-                    h_colors.append('skyblue') # 淺藍: 短撐
+                    h_colors.append('skyblue') 
                 h_lines.append(medium_low)
-                h_colors.append('blue') # 深藍: 長撐
+                h_colors.append('blue') 
                 
-                # 3. 顯示文字 (強制顯示兩行資訊，格式完全依照要求)
-                st.caption(f"🔹 **短線 (20日)**：{short_high:.2f} (壓力) / {short_low:.2f} (支撐)")
-                st.caption(f"📊 **波段 (60日)**：{medium_high:.2f} (壓力) / {medium_low:.2f} (支撐)")
+                # 3. 顯示文字 (已移除 🔹 和 📊 圖示，只保留純文字)
+                st.caption(f"**短線 (20日)**：{short_high:.2f} (壓力) / {short_low:.2f} (支撐)")
+                st.caption(f"**波段 (60日)**：{medium_high:.2f} (壓力) / {medium_low:.2f} (支撐)")
 
             # --- 繪圖區 ---
             plot_args = dict(
@@ -212,7 +211,7 @@ if run_btn or stock_id:
             fig, ax = mpf.plot(df.iloc[-120:], **plot_args)
             st.pyplot(fig)
             
-            # --- 底部說明區 (已更新完整清單) ---
+            # --- 底部說明區 ---
             st.markdown("---")
             st.markdown("""
             ### 📝 圖表判讀說明
