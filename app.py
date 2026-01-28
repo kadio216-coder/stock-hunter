@@ -74,11 +74,14 @@ def check_patterns(df):
     if (p2 < p1) and (p2 < p3) and (0.9 < p1/p3 < 1.1):
         signals.append({"name": "Head & Shoulders", "type": "line", "levels": [p2], "colors": ['blue']})
 
-    # 5. 三角收斂 (已修正：放寬至 10%)
+    # 5. 三角收斂 (高靈敏版)
     ma20 = df['Close'].rolling(20).mean()
     std20 = df['Close'].rolling(20).std()
     bw = ((ma20+2*std20) - (ma20-2*std20))/ma20
-    if bw.iloc[-1] < 0.10: # <--- 這裡改成了 0.10 (10%)
+    
+    # 修改邏輯：只要「過去 5 天內」有任何一天布林開口小於 13%，就判定為收斂
+    # 這樣可以抓到「剛收斂完正要變盤」的瞬間
+    if bw.iloc[-5:].min() < 0.13:
          signals.append({"name": "Triangle Squeeze", "type": "bollinger", "data": [ma20+2*std20, ma20-2*std20]})
 
     # 6. 杯柄
@@ -228,7 +231,7 @@ if run_btn or stock_id:
                     * **箱型突破**：看過去 60 天的高低點區間。
                     * **W 底 / M 頭**：比較「最近 10 天」與「20~60 天前」的低點/高點位置。
                     * **頭肩底**：將過去 60 天分為三段 (左肩、頭、右肩) 來比較。
-                    * **三角收斂**：計算布林通道 (20日均線標準差) 的壓縮程度。
+                    * **三角收斂**：計算布林通道 (20日均線標準差) 的壓縮程度 (近5日低於13%)。
 
             * **3. 長期大底型態**
                 * **偵測區間**：過去 120 個交易日 (約 6 個月 / 半年)
