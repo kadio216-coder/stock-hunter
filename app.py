@@ -172,7 +172,7 @@ if run_btn or stock_id:
                 st.caption(f"📊 自動標示關鍵區間：壓力 {recent_high} / 支撐 {recent_low}")
 
             # 繪圖
-            plot_args = dict(type='candle', style=s, volume=True, mav=(20,60), title=title_text, returnfig=True)
+            plot_args = dict(type='candle', style=s, volume=True, mav=(5, 20, 60), title=title_text, returnfig=True)
             if h_lines: plot_args['hlines'] = dict(hlines=h_lines, colors=h_colors, linestyle='-.', linewidths=1.0)
             if ap: plot_args['addplot'] = ap
 
