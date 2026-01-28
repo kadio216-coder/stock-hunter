@@ -2,7 +2,7 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import mplfinance as mpf
-import twstock  # <--- 新增這個套件
+import twstock
 
 # --- 1. 頁面設定 ---
 st.set_page_config(page_title="股票型態分析", layout="wide")
@@ -19,17 +19,15 @@ with st.sidebar:
 
 # --- 3. 核心邏輯 ---
 
-# 新增：取得股票中文名稱
+# 取得股票中文名稱
 def get_stock_name(symbol):
     try:
-        # 只處理台股代號 (去除 .TW 或 .TWO)
         code = symbol.split('.')[0]
-        # 使用 twstock 查詢
         if code in twstock.codes:
             return twstock.codes[code].name
     except:
         pass
-    return symbol # 如果找不到 (例如美股)，就回傳原本代號
+    return symbol
 
 def get_data(symbol):
     try:
@@ -106,7 +104,7 @@ if run_btn or stock_id:
         if df is None:
             st.error(f"❌ 找不到 {stock_id} 的資料，請檢查代號是否正確。")
         else:
-            # 取得中文名稱
+            # 取得中文名稱 (僅用於網頁顯示)
             stock_name = get_stock_name(stock_id)
             
             last_price = df['Close'].iloc[-1]
@@ -114,7 +112,7 @@ if run_btn or stock_id:
             change = last_price - df['Close'].iloc[-2]
             pct_change = (change / df['Close'].iloc[-2]) * 100
             
-            # 顯示大標題：名稱 (代號)
+            # 網頁上的大標題顯示中文
             st.subheader(f"{stock_name} ({stock_id})")
             
             col1, col2, col3 = st.columns(3)
@@ -130,7 +128,9 @@ if run_btn or stock_id:
             ap = []
             h_lines = []
             h_colors = []
-            title_text = f"{stock_name} ({stock_id}) Analysis" # 圖表標題也加上中文名
+            
+            # --- 修正點：圖表標題預設只用英文代號 ---
+            title_text = f"{stock_id} Analysis"
             
             name_map = {
                 "Box Breakout": "箱型突破",
@@ -147,7 +147,7 @@ if run_btn or stock_id:
                 st.success(f"🔥 發現訊號：{' + '.join(display_names)}")
                 
                 eng_names = [s['name'] for s in signals]
-                # 圖表標題改用 代號 + 英文型態 (避免亂碼)
+                # 如果有訊號，圖表標題用英文型態名稱
                 title_text = f"{stock_id} Pattern: {' + '.join(eng_names)}"
                 
                 for sig in signals:
@@ -165,7 +165,7 @@ if run_btn or stock_id:
                 style=s, 
                 volume=True, 
                 mav=(20,60),
-                title=title_text,
+                title=title_text, # 使用修正後的英文標題
                 returnfig=True
             )
             
