@@ -168,7 +168,7 @@ if run_btn or stock_id:
             else:
                 st.info("👀 目前無特定型態。")
 
-            # --- 自動畫支撐/壓力線邏輯 (格式更新版) ---
+            # --- 自動畫支撐/壓力線邏輯 (修正版：文字強制顯示) ---
             if show_sr or not h_lines:
                 # 1. 計算數值
                 short_high = df['High'].iloc[-20:].max()
@@ -176,7 +176,8 @@ if run_btn or stock_id:
                 medium_high = df['High'].iloc[-60:].max()
                 medium_low = df['Low'].iloc[-60:].min()
                 
-                # 2. 決定是否畫線 (視覺化邏輯不變，避免線條重疊)
+                # 2. 決定畫線 (視覺優化：若線條太近則只畫長線，避免圖表雜亂)
+                # 注意：這段只影響「圖上的線」，不影響「文字顯示」
                 if abs(short_high - medium_high) / medium_high > 0.02:
                     h_lines.append(short_high)
                     h_colors.append('orange') # 淺橘: 短壓
@@ -189,7 +190,7 @@ if run_btn or stock_id:
                 h_lines.append(medium_low)
                 h_colors.append('blue') # 深藍: 長撐
                 
-                # 3. 顯示文字 (依照指定格式更新)
+                # 3. 顯示文字 (強制顯示兩行資訊，格式完全依照要求)
                 st.caption(f"🔹 **短線 (20日)**：{short_high:.2f} (壓力) / {short_low:.2f} (支撐)")
                 st.caption(f"📊 **波段 (60日)**：{medium_high:.2f} (壓力) / {medium_low:.2f} (支撐)")
 
@@ -211,11 +212,11 @@ if run_btn or stock_id:
             fig, ax = mpf.plot(df.iloc[-120:], **plot_args)
             st.pyplot(fig)
             
-            # --- 底部說明區 ---
+            # --- 底部說明區 (已更新完整清單) ---
             st.markdown("---")
             st.markdown("""
             ### 📝 圖表判讀說明
-            1. **型態偵測**：自動掃描 9 種經典技術型態 (含買賣訊號)。
+            1. **型態偵測**：自動掃描 箱型、W底、M頭、頭肩底、杯柄、圓弧底、三角收斂 及 K線轉折訊號。
             2. **均線代表**：🟦 **藍線 5日** (週線) / 🟧 **橘線 20日** (月線) / 🟩 **綠線 60日** (季線)。
             3. **關鍵區間**：
                 * **短線 (20日)**：🔸 淺橘虛線 (壓力) / 🔹 淺藍虛線 (支撐)
