@@ -35,6 +35,11 @@ def get_data(symbol):
         df = yf.download(symbol, period="1y", progress=False)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [c[0] for c in df.columns]
+            
+        # 【🔥 關鍵修正 1】強制四捨五入到小數點第 2 位
+        # 解決電腦浮點數誤差，避免 35.40000001 被誤判為漲
+        df = df.round(2)
+        
         return df if len(df) > 120 else None
     except: return None
 
@@ -156,34 +161,33 @@ if run_btn or stock_id:
         else:
             stock_name = get_stock_name(stock_id)
             
-            # --- 關鍵修正：成交量顏色邏輯 (完全擬真券商版) ---
-            # 1. 取得昨收
+            # --- 【🔥 關鍵修正 2】成交量顏色判斷 ---
+            # 因為上面已經做過 df.round(2)，這裡的比較會非常精準
             prev_close = df['Close'].shift(1).fillna(0)
             
-            # 2. 定義顏色判定函式
             def get_vol_color(row):
+                # 漲 -> 紅
                 if row['Close'] > row['PrevClose']:
-                    return 'red'  # 漲 -> 紅
+                    return 'red'
+                # 跌 -> 綠
                 elif row['Close'] < row['PrevClose']:
-                    return 'green' # 跌 -> 綠
+                    return 'green'
+                # 平盤 -> 看K棒顏色
                 else:
-                    # 平盤 (Change == 0) -> 看 K 棒顏色
                     if row['Close'] >= row['Open']:
-                        return 'red' # 紅K或十字線 -> 紅
+                        return 'red'   # 紅K (或十字) -> 紅
                     else:
                         return 'green' # 黑K -> 綠
             
-            # 3. 建立臨時 DataFrame 來運算
             temp_df = pd.DataFrame({
                 'Close': df['Close'],
                 'Open': df['Open'],
                 'PrevClose': prev_close
             })
             
-            # 4. 應用邏輯
             df['VolColor'] = temp_df.apply(get_vol_color, axis=1)
 
-            # 5. 切片 (取最後 120 天)
+            # 切片取最後 120 天
             plot_data = df.iloc[-120:]
             vol_colors = plot_data['VolColor'].tolist()
 
@@ -257,7 +261,7 @@ if run_btn or stock_id:
                 st.caption(f"**短線 (20日)**：{short_high:.2f} (壓力) / {short_low:.2f} (支撐)")
                 st.caption(f"**波段 (60日)**：{medium_high:.2f} (壓力) / {medium_low:.2f} (支撐)")
 
-            # --- 繪圖區 (加入正確的成交量) ---
+            # --- 繪圖區 ---
             ap.append(mpf.make_addplot(plot_data['Volume'], type='bar', panel=1, color=vol_colors, ylabel='Volume'))
 
             plot_args = dict(
@@ -271,8 +275,8 @@ if run_btn or stock_id:
 
             fig, ax = mpf.plot(plot_data, **plot_args)
             st.pyplot(fig)
-            
-            # --- 底部說明區 (已還原完整版) ---
+
+            # --- 底部說明區 (已還原完整詳細版) ---
             st.markdown("---")
             st.markdown("""
             ### 📝 圖表判讀說明
@@ -284,7 +288,7 @@ if run_btn or stock_id:
             * ** 短期型態 (K線轉折)**
                 * **偵測區間**：過去 2 天
                 * **包含型態**：長紅吞噬 (Bullish Engulfing)、錘頭線 (Hammer)
-                * **邏輯**：抓極短線 K 線轉折訊號。
+                * **邏輯**：只比較「今天」與「昨天」的開盤、收盤與最高最低價，用來抓極短線轉折。
             * ** 中期波段型態 (最常用)**
                 * **偵測區間**：過去 60 個交易日 (約 3 個月 / 一季)
                 * **包含型態**：
