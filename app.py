@@ -122,25 +122,35 @@ def check_patterns(df):
         if today['Close'] < neckline:
              signals.append({"name": "Head & Shoulders Top", "type": "pattern", "rect": [p2_h, hs_low, 60], "color": "green"})
 
-    # 5. 三角收斂 (大開口修正版)
+    # 5. 三角收斂 (頂點追蹤修正版)
     ma_period = 60
     ma = df['Close'].rolling(ma_period).mean()
     std = df['Close'].rolling(ma_period).std()
     bw = ((ma + 2*std) - (ma - 2*std)) / ma
     
     if bw.iloc[-5:].min() < 0.20:
-         # 【關鍵修正】
-         # 不抓 "60天前的那一天的價格"，改抓 "這60天以來的最高價與最低價"
-         # 這樣三角形的左邊開口就會撐到最大
-         period_high = df['High'].iloc[-ma_period:].max()
-         period_low = df['Low'].iloc[-ma_period:].min()
+         # 取出過去 60 天的資料片段
+         recent_data = df.iloc[-ma_period:]
+         
+         # 1. 找出區間內 "最高價" 是多少，以及它是 "幾天前" 發生的
+         # argmax() 回傳的是 index (日期)，我們需要轉成 "離今天幾天"
+         high_val = recent_data['High'].max()
+         high_date = recent_data['High'].idxmax()
+         # 計算相對位置 (例如: 50 表示 50 天前)
+         high_lag = len(df) - df.index.get_loc(high_date) - 1
+         
+         # 2. 找出區間內 "最低價" 是多少，以及它是 "幾天前" 發生的
+         low_val = recent_data['Low'].min()
+         low_date = recent_data['Low'].idxmin()
+         low_lag = len(df) - df.index.get_loc(low_date) - 1
          
          current_price = today['Close']
          
+         # 傳遞完整的座標資訊：[高點價位, 高點距今幾天, 低點價位, 低點距今幾天, 收斂價位]
          signals.append({
              "name": "Triangle Squeeze", 
              "type": "triangle", 
-             "coords": [period_high, period_low, current_price, ma_period], 
+             "points_info": [high_val, high_lag, low_val, low_lag, current_price], 
              "color": "yellow"
          })
 
@@ -257,18 +267,21 @@ if run_btn or stock_id:
                     )
                     ax_main.add_patch(rect)
                 
-                # 2. 繪製三角形 (大開口版)
+                # 2. 繪製三角形 (精準頂點版)
                 elif sig.get('type') == 'triangle':
-                    y_start_high, y_start_low, y_end, duration = sig['coords']
+                    # 解包我們剛剛算好的精確座標
+                    high_val, high_lag, low_val, low_lag, curr_price = sig['points_info']
                     
                     x_end = total_len - 1
-                    x_start = max(0, x_end - duration)
+                    # 換算高低點在圖表上的絕對 x 座標
+                    x_high = x_end - high_lag
+                    x_low = x_end - low_lag
                     
-                    # 定義三角形
+                    # 定義三角形三個頂點
                     triangle_points = [
-                        [x_start, y_start_high],  # 左上 (期間最高)
-                        [x_start, y_start_low],   # 左下 (期間最低)
-                        [x_end, y_end]            # 右 (收斂點)
+                        [x_high, high_val], # 真正的高點 (可能在左邊任何位置)
+                        [x_low, low_val],   # 真正的低點
+                        [x_end, curr_price] # 右側收斂點
                     ]
                     
                     tri = patches.Polygon(
@@ -277,8 +290,6 @@ if run_btn or stock_id:
                         linewidth=1.5, edgecolor='#FBC02D', facecolor='#FFF176', alpha=0.3
                     )
                     ax_main.add_patch(tri)
-                
-                # 無文字
 
             st.pyplot(fig)
 
@@ -310,7 +321,7 @@ if run_btn or stock_id:
 
             #### 2. 🎨 色塊框選意義 (Time-Specific)
             圖表上會出現半透明的色塊，框住型態發生的 **「時間」** 與 **「價格範圍」**：
-            * **🟨 黃色三角形**：**三角收斂區**。圖表上呈現 `>` 形狀，代表股價波動逐漸壓縮，即將變盤。
+            * **🟨 黃色三角形**：**三角收斂區**。頂點會精準連線至波段的最高點與最低點，顯示價格壓縮的過程。
             * **🟧 橘色方框**：**箱型整理區**。股價在這個長方形箱子裡上下震盪。
             * **🟥 紅色方框**：**突破訊號**。股價強勢衝出整理區間。
             * **🟦 藍色方框**：**底部型態** (W底、頭肩底、圓弧底)。
