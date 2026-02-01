@@ -46,15 +46,23 @@ def calculate_kd(df, n=9):
     data['RSV'] = (data['Close'] - data['Lowest_Low']) / (data['Highest_High'] - data['Lowest_Low']) * 100
     data['K'] = 50
     data['D'] = 50
-    k_list, d_list = [], []
+    
+    k_list = []
+    d_list = []
     k_curr, d_curr = 50, 50
+    
     for rsv in data['RSV']:
         if pd.isna(rsv):
-            k_list.append(50), d_list.append(50)
+            # 【修正】拆成兩行，避免產生 Tuple 被 Streamlit 印出來
+            k_list.append(50)
+            d_list.append(50)
         else:
             k_curr = (2/3) * k_curr + (1/3) * rsv
             d_curr = (2/3) * d_curr + (1/3) * k_curr
-            k_list.append(k_curr), d_list.append(d_curr)
+            # 【修正】拆成兩行
+            k_list.append(k_curr)
+            d_list.append(d_curr)
+            
     data['K'] = k_list
     data['D'] = d_list
     return data
@@ -73,7 +81,7 @@ def check_patterns(df):
     elif (last_3_k < 20).all():
         signals.append({"name": "KD Low Passivation", "type": "text"})
 
-    # 2. 箱型整理 (Box) - 區間 60天
+    # 2. 箱型整理 (Box)
     period_high = df['High'].iloc[-60:-1].max()
     period_low = df['Low'].iloc[-60:-1].min()
     amp = (period_high - period_low) / period_low
@@ -86,14 +94,14 @@ def check_patterns(df):
             if today['Close'] > (period_low + period_high)/2:
                 signals.append({"name": "Box Consolidation", "type": "box", "rect": rect_info, "color": "orange"})
     
-    # 3. W底 - 區間 60天
+    # 3. W底
     recent_low = df['Low'].iloc[-10:].min()
     prev_low = df['Low'].iloc[-60:-20].min()
     w_high = df['High'].iloc[-60:].max() 
     if 0.90 < (recent_low/prev_low) < 1.10 and today['Close'] > recent_low*1.05:
         signals.append({"name": "Double Bottom", "type": "pattern", "rect": [w_high, recent_low, 60], "color": "blue"})
 
-    # 4. M頭 - 區間 60天
+    # 4. M頭
     recent_high = df['High'].iloc[-10:].max()
     prev_high = df['High'].iloc[-60:-20].max()
     m_low = df['Low'].iloc[-60:].min()
@@ -101,7 +109,7 @@ def check_patterns(df):
         if today['Close'] < df['Low'].iloc[-20:].min():
              signals.append({"name": "Double Top (Sell)", "type": "pattern", "rect": [recent_high, m_low, 60], "color": "green"})
 
-    # 5. 頭肩底/頂 - 區間 60天
+    # 5. 頭肩底/頂
     data_hs = df.iloc[-60:]
     p1 = data_hs['Low'].iloc[0:20].min()
     p2 = data_hs['Low'].iloc[20:40].min() 
@@ -119,7 +127,7 @@ def check_patterns(df):
         if today['Close'] < neckline:
              signals.append({"name": "Head & Shoulders Top", "type": "pattern", "rect": [p2_h, hs_low, 60], "color": "green"})
 
-    # 6. 三角收斂 - 區間 20天
+    # 6. 三角收斂
     ma20 = df['Close'].rolling(20).mean()
     std20 = df['Close'].rolling(20).std()
     bw = ((ma20+2*std20) - (ma20-2*std20))/ma20
@@ -128,7 +136,7 @@ def check_patterns(df):
          lower = (ma20 - 2*std20).iloc[-1]
          signals.append({"name": "Triangle Squeeze", "type": "pattern", "rect": [upper, lower, 20], "color": "yellow"})
 
-    # 7. 杯柄/圓弧 - 區間 120天
+    # 7. 杯柄/圓弧
     data_ch = df.iloc[-120:]
     left_rim = data_ch['High'].iloc[:40].max()
     bottom = data_ch['Low'].iloc[40:100].min()
@@ -166,7 +174,7 @@ if run_btn or stock_id:
         else:
             stock_name = get_stock_name(stock_id)
             
-            # 成交量顏色 (精準券商版)
+            # 成交量顏色
             prev_close = df['Close'].shift(1).fillna(0)
             def get_vol_color(row):
                 if row['Close'] > row['PrevClose']: return 'red'
@@ -249,15 +257,16 @@ if run_btn or stock_id:
                         linewidth=1.5, edgecolor=color, facecolor=color, alpha=0.2
                     )
                     ax_main.add_patch(rect)
+                    
                     display_name = name_map.get(sig['name'], sig['name'])
                     ax_main.text(x_start, top, display_name, color=color, fontsize=9, fontweight='bold', verticalalignment='bottom')
 
             st.pyplot(fig)
 
-            # --- 說明區 (完全還原最詳細版) ---
+            # --- 說明區 (完全還原版) ---
             st.markdown("---")
             st.markdown("""
-            ### 📝 圖表判讀說明 (完整詳細版)
+            ### 📝 圖表判讀說明
 
             #### 1. 🔍 型態偵測區間詳解
             * ** KD 鈍化 (極端趨勢)**：
