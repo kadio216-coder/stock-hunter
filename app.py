@@ -5,9 +5,9 @@ import mplfinance as mpf
 import twstock
 
 # --- 1. 頁面設定 ---
-st.set_page_config(page_title="股票全能分析王", layout="wide")
-st.title("📈 股票全能分析王")
-st.markdown("自動偵測 **12種技術型態** (含頭肩頂/底、KD鈍化)，並將所有訊號 **視覺化** 繪製於圖表上。")
+st.set_page_config(page_title="股票型態分析", layout="wide")
+st.title("📈 股票型態分析")
+# (原本的文字說明已移除)
 
 # --- 2. 側邊欄輸入 ---
 with st.sidebar:
@@ -261,14 +261,25 @@ if run_btn or stock_id:
                 st.caption(f"**短線 (20日)**：{short_high:.2f} (壓力) / {short_low:.2f} (支撐)")
                 st.caption(f"**波段 (60日)**：{medium_high:.2f} (壓力) / {medium_low:.2f} (支撐)")
 
-            # --- 繪圖區 ---
+            # --- 繪圖區 (成交量顏色修正版) ---
+            plot_data = df.iloc[-120:]
+
+            # 1. 製作成交量顏色陣列 (漲紅跌綠)
+            price_diff = df['Close'].diff()
+            vol_colors_full = price_diff.apply(lambda x: 'red' if x >= 0 else 'green')
+            vol_colors = vol_colors_full.iloc[-120:].tolist()
+
+            # 2. 加入成交量副圖 (panel=1)
+            ap.append(mpf.make_addplot(plot_data['Volume'], type='bar', panel=1, color=vol_colors, ylabel='Volume'))
+
             plot_args = dict(
                 type='candle', 
                 style=s, 
-                volume=True, 
+                volume=False, 
                 mav=(5, 20, 60), 
                 title=title_text, 
-                returnfig=True
+                returnfig=True,
+                panel_ratios=(3, 1)
             )
             
             if h_lines: 
@@ -276,30 +287,30 @@ if run_btn or stock_id:
             if ap: 
                 plot_args['addplot'] = ap
 
-            fig, ax = mpf.plot(df.iloc[-120:], **plot_args)
+            fig, ax = mpf.plot(plot_data, **plot_args)
             st.pyplot(fig)
             
-            # --- 底部說明區 (完整合併版) ---
+            # --- 底部說明區 ---
             st.markdown("---")
             st.markdown("""
             ### 📝 圖表判讀說明
 
             #### 1. 🔍 型態偵測區間詳解
-            * **📊 KD 鈍化 (極端趨勢)**：
+            * ** KD 鈍化 (極端趨勢)**：
                 * **🔥 高檔鈍化** (K > 80 連 3 日)：多頭極強，行情可能噴出。
                 * **⚠️ 低檔鈍化** (K < 20 連 3 日)：空頭極弱，小心殺盤重心。
-            * **1. 短期型態 (K線轉折)**
+            * ** 短期型態 (K線轉折)**
                 * **偵測區間**：過去 2 天
                 * **包含型態**：長紅吞噬 (Bullish Engulfing)、錘頭線 (Hammer)
                 * **邏輯**：只比較「今天」與「昨天」的開盤、收盤與最高最低價，用來抓極短線轉折。
-            * **2. 中期波段型態 (最常用)**
+            * ** 中期波段型態 (最常用)**
                 * **偵測區間**：過去 60 個交易日 (約 3 個月 / 一季)
                 * **包含型態**：
                     * **箱型整理/突破**：看過去 60 天的高低點區間，波動 < 25%。
                     * **W 底 / M 頭**：比較「最近 10 天」與「20~60 天前」的低點/高點位置。
                     * **頭肩底 / 頭肩頂**：將過去 60 天分為三段 (左肩、頭、右肩) 來比較。
                     * **三角收斂**：計算布林通道 (20日均線標準差) 的壓縮程度 (近5日低於13%)。
-            * **3. 長期大底型態**
+            * ** 長期大底型態**
                 * **偵測區間**：過去 120 個交易日 (約 6 個月 / 半年)
                 * **包含型態**：
                     * **杯柄型態 (Cup & Handle)**：因為杯子需要時間打底，所以抓 120 天來確認左杯緣、杯底和右杯緣。
