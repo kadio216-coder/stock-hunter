@@ -80,7 +80,7 @@ def check_patterns(df):
     elif (last_3_k < 20).all():
         signals.append({"name": "KD Low Passivation", "type": "text"})
 
-    # --- B. 結構型態 (畫線) ---
+    # --- B. 結構型態 ---
     
     # 1. 箱型整理/突破
     period_high = df['High'].iloc[-60:-1].max()
@@ -100,7 +100,7 @@ def check_patterns(df):
     if 0.97 < (recent_low/prev_low) < 1.03 and today['Close'] > recent_low*1.02:
         signals.append({"name": "Double Bottom", "type": "line", "levels": [recent_low], "colors": ['blue']})
 
-    # 3. M頭 (賣訊)
+    # 3. M頭
     recent_high = df['High'].iloc[-10:].max()
     prev_high = df['High'].iloc[-60:-20].max()
     if 0.97 < (recent_high/prev_high) < 1.03:
@@ -148,13 +148,10 @@ def check_patterns(df):
         signals.append({"name": "Rounding Bottom", "type": "line", "levels": [mid_low], "colors": ['blue']})
 
     # --- C. K線型態 ---
-    
-    # 8. 長紅吞噬
     is_engulfing = (prev['Close'] < prev['Open']) and (today['Close'] > today['Open']) and (today['Close'] > prev['Open']) and (today['Open'] < prev['Close'])
     if is_engulfing: 
         signals.append({"name": "Bullish Engulfing", "type": "line", "levels": [today['High']], "colors": ['red']})
 
-    # 9. 錘頭線
     body = abs(today['Close'] - today['Open'])
     lower_shadow = min(today['Close'], today['Open']) - today['Low']
     is_hammer = (lower_shadow > body * 2) and (today['Close'] > prev['Close'])
@@ -174,24 +171,27 @@ if run_btn or stock_id:
         else:
             stock_name = get_stock_name(stock_id)
             
-            # 2. 【關鍵修正】先在原始資料計算好成交量顏色，避免切片後錯位
-            # 邏輯：今天收盤 - 昨天收盤。>=0 為紅，<0 為綠
-            # 使用 shift(1) 來抓昨天的收盤價，確保對齊
-            change = df['Close'] - df['Close'].shift(1)
-            # 填補第一筆 NaN 為 0，避免報錯 (雖然切片後看不到第一筆)
-            change = change.fillna(0)
+            # 2. 【關鍵】在切片前，計算每一天相對於前一天的漲跌
+            # 用 'r' (Red) 和 'g' (Green) 來匹配 mplfinance 的標準色碼
+            prev_close = df['Close'].shift(1)
+            change = df['Close'] - prev_close
             
-            # 建立顏色 list (整張表都算好)
-            # np.where(條件, 符合時的值, 不符合時的值)
-            df['VolColor'] = np.where(change >= 0, 'red', 'green')
+            # 定義顏色：漲或平(>=0)為紅，跌(<0)為綠
+            # 這裡直接生成一個 Python List，避免 pandas index 對齊問題
+            vol_colors_full = np.where(change >= 0, 'r', 'g')
+            df['VolColor'] = vol_colors_full # 存回 df 方便查驗
 
-            # 3. 現在才開始切片 (取最後 120 天)
+            # 3. 切片：取最後 120 天畫圖
             plot_data = df.iloc[-120:]
             
-            # 取得切片後的最後一筆資料顯示用
+            # 4. 【同步切片顏色】確保顏色列表長度與 plot_data 完全一致
+            # 直接從 plot_data 拿欄位轉 list，這樣絕對不會錯位
+            vol_colors = plot_data['VolColor'].tolist()
+
+            # 準備數據顯示
             last_price = plot_data['Close'].iloc[-1]
             last_vol = plot_data['Volume'].iloc[-1]
-            last_change = change.iloc[-1] # 使用我們剛剛算好的 change
+            last_change = change.iloc[-1]
             pct_change = (last_change / df['Close'].iloc[-2]) * 100
             
             # 顯示資訊看板
@@ -201,10 +201,11 @@ if run_btn or stock_id:
             col2.metric("成交量", f"{int(last_vol/1000)} 張")
             col3.markdown(f"**資料日期**: {plot_data.index[-1].date()}")
             
-            # 執行型態偵測 (傳入 full df)
+            # 執行型態偵測
             signals = check_patterns(df)
             
-            # 設定台股配色 (K線顏色)
+            # 設定台股配色
+            # 這裡 volume='inherit' 沒關係，因為我們會把主圖 volume 關掉，用 addplot 蓋過去
             mc = mpf.make_marketcolors(up='r', down='g', edge='inherit', wick='inherit', volume='inherit')
             s = mpf.make_mpf_style(marketcolors=mc, gridstyle=':', y_on_right=True)
             
@@ -275,23 +276,20 @@ if run_btn or stock_id:
                 st.caption(f"**短線 (20日)**：{short_high:.2f} (壓力) / {short_low:.2f} (支撐)")
                 st.caption(f"**波段 (60日)**：{medium_high:.2f} (壓力) / {medium_low:.2f} (支撐)")
 
-            # --- 繪圖區 (成交量顏色終極修正) ---
+            # --- 繪圖區 (成交量顏色暴力修正) ---
             
-            # 4. 加入成交量副圖
-            # 直接使用我們剛剛在全域 df 算好、並切片過來的 'VolColor' 欄位
-            # 這樣顏色與日期絕對是 100% 對應的
-            vol_colors = plot_data['VolColor'].tolist()
-            
+            # 【關鍵】加入成交量副圖 (Panel 1)
+            # 使用我們手動算好的 vol_colors 列表，這會強制覆蓋任何預設顏色
             ap.append(mpf.make_addplot(plot_data['Volume'], type='bar', panel=1, color=vol_colors, ylabel='Volume'))
 
             plot_args = dict(
                 type='candle', 
                 style=s, 
-                volume=False, # 關閉預設
+                volume=False, # 絕對要關閉主圖的自動成交量，否則會重疊
                 mav=(5, 20, 60), 
                 title=title_text, 
                 returnfig=True,
-                panel_ratios=(3, 1)
+                panel_ratios=(3, 1) # 3:1 的比例讓成交量不要太矮
             )
             
             if h_lines: 
@@ -302,6 +300,25 @@ if run_btn or stock_id:
             fig, ax = mpf.plot(plot_data, **plot_args)
             st.pyplot(fig)
             
+            # --- 數據驗證區 (抓兇手用) ---
+            with st.expander("🛠️ 點擊展開：成交量顏色數據驗證 (Debug)"):
+                st.write("如果這裡顯示的顏色是對的，但圖是錯的，那就是繪圖庫的問題。")
+                st.write("邏輯：收盤 >= 昨收 -> Red (紅)；收盤 < 昨收 -> Green (綠)")
+                
+                # 準備驗證資料表
+                debug_df = plot_data[['Close', 'Volume', 'VolColor']].copy()
+                debug_df['Prev Close'] = df['Close'].shift(1).loc[plot_data.index] # 抓回昨收
+                debug_df['Change'] = debug_df['Close'] - debug_df['Prev Close']
+                
+                # 整理顯示格式
+                debug_df = debug_df[['Prev Close', 'Close', 'Change', 'VolColor', 'Volume']]
+                # 顯示最後 5 筆
+                st.dataframe(debug_df.tail(5).style.format({
+                    'Prev Close': '{:.2f}', 
+                    'Close': '{:.2f}', 
+                    'Change': '{:.2f}'
+                }))
+
             # --- 底部說明區 ---
             st.markdown("---")
             st.markdown("""
