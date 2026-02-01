@@ -34,7 +34,6 @@ def get_data(symbol):
         df = yf.download(symbol, period="1y", progress=False)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [c[0] for c in df.columns]
-        # 強制四捨五入
         df = df.round(2)
         return df if len(df) > 120 else None
     except: return None
@@ -123,16 +122,23 @@ def check_patterns(df):
         if today['Close'] < neckline:
              signals.append({"name": "Head & Shoulders Top", "type": "pattern", "rect": [p2_h, hs_low, 60], "color": "green"})
 
-    # 5. 三角收斂 (改用三角形)
+    # 5. 三角收斂 (修正版：只抓起點的高低，不抓整個區間的最高最低)
     ma20 = df['Close'].rolling(20).mean()
     std20 = df['Close'].rolling(20).std()
     bw = ((ma20+2*std20) - (ma20-2*std20))/ma20
     
     if bw.iloc[-5:].min() < 0.15:
-         start_high = df['High'].iloc[-20:].max()
-         start_low = df['Low'].iloc[-20:].min()
+         # 【關鍵修正】
+         # 不要用 iloc[-20:].max()，那樣會抓到區間內最高的刺，導致三角形開口過大
+         # 改用 iloc[-20] (起點) 附近的 3 天高低點，來錨定三角形的開口
+         start_idx = -20
+         # 為了避免單日極端值，取起點附近 3 天的極值
+         start_high = df['High'].iloc[start_idx-3 : start_idx+1].max()
+         start_low = df['Low'].iloc[start_idx-3 : start_idx+1].min()
+         
          current_price = today['Close']
-         # 回傳三角形的座標資訊：[左上高點, 左下低點, 右側收斂點, 持續天數]
+         
+         # 這裡改用黃色 (yellow)
          signals.append({"name": "Triangle Squeeze", "type": "triangle", "coords": [start_high, start_low, current_price, 20], "color": "yellow"})
 
     # 6. 杯柄/圓弧
@@ -255,25 +261,25 @@ if run_btn or stock_id:
                     x_end = total_len - 1
                     x_start = max(0, x_end - duration)
                     
-                    # 定義三角形頂點 (左上, 左下, 右收斂點)
+                    # 定義三角形 (左上, 左下, 右收斂點)
+                    # 這樣畫出來就是一個從左到右收斂的箭頭形狀
                     triangle_points = [
-                        [x_start, y_start_high],
-                        [x_start, y_start_low],
-                        [x_end, y_end]
+                        [x_start, y_start_high],  # 左上 (起點高)
+                        [x_start, y_start_low],   # 左下 (起點低)
+                        [x_end, y_end]            # 右 (收斂至目前股價)
                     ]
                     
+                    # 使用淡黃色填滿，邊框深一點
                     tri = patches.Polygon(
                         triangle_points,
                         closed=True,
-                        linewidth=2, edgecolor=color, facecolor=color, alpha=0.2
+                        linewidth=1.5, edgecolor='#FBC02D', facecolor='#FFF176', alpha=0.3
                     )
                     ax_main.add_patch(tri)
-                
-                # 不顯示文字標籤
 
             st.pyplot(fig)
 
-            # --- 說明區 (完全還原版) ---
+            # --- 說明區 ---
             st.markdown("---")
             st.markdown("""
             ### 📝 圖表判讀說明
