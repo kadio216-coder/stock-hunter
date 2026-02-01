@@ -23,7 +23,6 @@ with st.sidebar:
 # --- 3. 核心邏輯 ---
 
 def get_stock_name(symbol):
-    """取得股票中文名稱"""
     try:
         code = symbol.split('.')[0]
         if code in twstock.codes:
@@ -32,7 +31,6 @@ def get_stock_name(symbol):
     return symbol
 
 def get_data(symbol):
-    """下載股價資料"""
     try:
         df = yf.download(symbol, period="1y", progress=False)
         if isinstance(df.columns, pd.MultiIndex):
@@ -41,7 +39,6 @@ def get_data(symbol):
     except: return None
 
 def calculate_kd(df, n=9):
-    """計算 KD 指標"""
     data = df.copy()
     data['Lowest_Low'] = data['Low'].rolling(window=n).min()
     data['Highest_High'] = data['High'].rolling(window=n).max()
@@ -67,22 +64,19 @@ def calculate_kd(df, n=9):
     return data
 
 def check_patterns(df):
-    """偵測各種技術型態"""
     signals = []
     df_kd = calculate_kd(df)
     today = df.iloc[-1]
     prev = df.iloc[-2]
     
-    # --- A. KD 鈍化 ---
+    # KD 鈍化
     last_3_k = df_kd['K'].iloc[-3:]
     if (last_3_k > 80).all():
         signals.append({"name": "KD High Passivation", "type": "text"})
     elif (last_3_k < 20).all():
         signals.append({"name": "KD Low Passivation", "type": "text"})
 
-    # --- B. 結構型態 ---
-    
-    # 1. 箱型整理/突破
+    # 結構型態
     period_high = df['High'].iloc[-60:-1].max()
     period_low = df['Low'].iloc[-60:-1].min()
     amp = (period_high - period_low) / period_low
@@ -94,20 +88,17 @@ def check_patterns(df):
             if today['Close'] > (period_low + period_high)/2:
                 signals.append({"name": "Box Consolidation", "type": "box", "levels": [period_high, period_low], "colors": ['orange', 'blue']})
     
-    # 2. W底
     recent_low = df['Low'].iloc[-10:].min()
     prev_low = df['Low'].iloc[-60:-20].min()
     if 0.97 < (recent_low/prev_low) < 1.03 and today['Close'] > recent_low*1.02:
         signals.append({"name": "Double Bottom", "type": "line", "levels": [recent_low], "colors": ['blue']})
 
-    # 3. M頭
     recent_high = df['High'].iloc[-10:].max()
     prev_high = df['High'].iloc[-60:-20].max()
     if 0.97 < (recent_high/prev_high) < 1.03:
         if today['Close'] < df['Low'].iloc[-20:].min():
              signals.append({"name": "Double Top (Sell)", "type": "line", "levels": [recent_high], "colors": ['green']})
 
-    # 4a. 頭肩底
     data_hs = df.iloc[-60:]
     p1 = data_hs['Low'].iloc[0:20].min()
     p2 = data_hs['Low'].iloc[20:40].min()
@@ -115,7 +106,6 @@ def check_patterns(df):
     if (p2 < p1) and (p2 < p3) and (0.9 < p1/p3 < 1.1):
         signals.append({"name": "Head & Shoulders Bottom", "type": "line", "levels": [p2], "colors": ['blue']})
 
-    # 4b. 頭肩頂
     p1_h = data_hs['High'].iloc[0:20].max()
     p2_h = data_hs['High'].iloc[20:40].max() 
     p3_h = data_hs['High'].iloc[40:].max()
@@ -124,14 +114,12 @@ def check_patterns(df):
         if today['Close'] < neckline:
              signals.append({"name": "Head & Shoulders Top", "type": "line", "levels": [p2_h], "colors": ['green']})
 
-    # 5. 三角收斂
     ma20 = df['Close'].rolling(20).mean()
     std20 = df['Close'].rolling(20).std()
     bw = ((ma20+2*std20) - (ma20-2*std20))/ma20
     if bw.iloc[-5:].min() < 0.13:
          signals.append({"name": "Triangle Squeeze", "type": "bollinger", "data": [ma20+2*std20, ma20-2*std20]})
 
-    # 6. 杯柄
     data_ch = df.iloc[-120:]
     left_rim = data_ch['High'].iloc[:40].max()
     bottom = data_ch['Low'].iloc[40:100].min()
@@ -140,14 +128,12 @@ def check_patterns(df):
         if today['Close'] > right_rim * 0.9:
             signals.append({"name": "Cup & Handle", "type": "line", "levels": [left_rim], "colors": ['orange']})
 
-    # 7. 圓弧底
     mid_low = df['Low'].iloc[-80:-40].mean()
     start_high = df['High'].iloc[-120:-100].mean()
     end_high = df['High'].iloc[-20:].mean()
     if (mid_low < start_high * 0.8) and (abs(start_high - end_high) / start_high < 0.1):
         signals.append({"name": "Rounding Bottom", "type": "line", "levels": [mid_low], "colors": ['blue']})
 
-    # --- C. K線型態 ---
     is_engulfing = (prev['Close'] < prev['Open']) and (today['Close'] > today['Open']) and (today['Close'] > prev['Open']) and (today['Open'] < prev['Close'])
     if is_engulfing: 
         signals.append({"name": "Bullish Engulfing", "type": "line", "levels": [today['High']], "colors": ['red']})
@@ -163,7 +149,6 @@ def check_patterns(df):
 # --- 4. 主程式執行 ---
 if run_btn or stock_id:
     with st.spinner(f"正在分析 {stock_id} ..."):
-        # 1. 下載資料
         df = get_data(stock_id)
         
         if df is None:
@@ -171,41 +156,51 @@ if run_btn or stock_id:
         else:
             stock_name = get_stock_name(stock_id)
             
-            # 2. 【關鍵】在切片前，計算每一天相對於前一天的漲跌
-            # 用 'r' (Red) 和 'g' (Green) 來匹配 mplfinance 的標準色碼
-            prev_close = df['Close'].shift(1)
-            change = df['Close'] - prev_close
+            # --- 關鍵修正：成交量顏色邏輯 (完全擬真券商版) ---
+            # 1. 取得昨收
+            prev_close = df['Close'].shift(1).fillna(0)
             
-            # 定義顏色：漲或平(>=0)為紅，跌(<0)為綠
-            # 這裡直接生成一個 Python List，避免 pandas index 對齊問題
-            vol_colors_full = np.where(change >= 0, 'r', 'g')
-            df['VolColor'] = vol_colors_full # 存回 df 方便查驗
+            # 2. 定義顏色判定函式
+            def get_vol_color(row):
+                if row['Close'] > row['PrevClose']:
+                    return 'red'  # 漲 -> 紅
+                elif row['Close'] < row['PrevClose']:
+                    return 'green' # 跌 -> 綠
+                else:
+                    # 平盤 (Change == 0) -> 看 K 棒顏色
+                    if row['Close'] >= row['Open']:
+                        return 'red' # 紅K或十字線 -> 紅
+                    else:
+                        return 'green' # 黑K -> 綠
+            
+            # 3. 建立臨時 DataFrame 來運算
+            temp_df = pd.DataFrame({
+                'Close': df['Close'],
+                'Open': df['Open'],
+                'PrevClose': prev_close
+            })
+            
+            # 4. 應用邏輯
+            df['VolColor'] = temp_df.apply(get_vol_color, axis=1)
 
-            # 3. 切片：取最後 120 天畫圖
+            # 5. 切片 (取最後 120 天)
             plot_data = df.iloc[-120:]
-            
-            # 4. 【同步切片顏色】確保顏色列表長度與 plot_data 完全一致
-            # 直接從 plot_data 拿欄位轉 list，這樣絕對不會錯位
             vol_colors = plot_data['VolColor'].tolist()
 
-            # 準備數據顯示
+            # 數據顯示
             last_price = plot_data['Close'].iloc[-1]
             last_vol = plot_data['Volume'].iloc[-1]
-            last_change = change.iloc[-1]
-            pct_change = (last_change / df['Close'].iloc[-2]) * 100
+            last_change = last_price - plot_data['Close'].iloc[-2]
+            pct_change = (last_change / plot_data['Close'].iloc[-2]) * 100
             
-            # 顯示資訊看板
             st.subheader(f"{stock_name} ({stock_id})")
             col1, col2, col3 = st.columns(3)
             col1.metric("收盤價", f"{last_price:.2f}", f"{last_change:.2f} ({pct_change:.2f}%)")
             col2.metric("成交量", f"{int(last_vol/1000)} 張")
             col3.markdown(f"**資料日期**: {plot_data.index[-1].date()}")
             
-            # 執行型態偵測
             signals = check_patterns(df)
             
-            # 設定台股配色
-            # 這裡 volume='inherit' 沒關係，因為我們會把主圖 volume 關掉，用 addplot 蓋過去
             mc = mpf.make_marketcolors(up='r', down='g', edge='inherit', wick='inherit', volume='inherit')
             s = mpf.make_mpf_style(marketcolors=mc, gridstyle=':', y_on_right=True)
             
@@ -214,33 +209,23 @@ if run_btn or stock_id:
             h_colors = []
             title_text = f"{stock_id} Analysis"
             
-            # 中文名稱對照表
             name_map = {
-                "Box Breakout": "箱型突破", 
-                "Box Consolidation": "箱型整理中",
-                "Double Bottom": "W底", 
-                "Double Top (Sell)": "M頭(賣訊)",
-                "Head & Shoulders Bottom": "頭肩底", 
-                "Head & Shoulders Top": "頭肩頂(賣訊)",
-                "Triangle Squeeze": "三角收斂", 
-                "Cup & Handle": "杯柄型態",
-                "Rounding Bottom": "圓弧底", 
-                "Bullish Engulfing": "長紅吞噬", 
-                "Hammer": "錘頭線",
-                "KD High Passivation": "🔥 KD高檔鈍化(強勢)",
-                "KD Low Passivation": "⚠️ KD低檔鈍化(弱勢)"
+                "Box Breakout": "箱型突破", "Box Consolidation": "箱型整理中", "Double Bottom": "W底", 
+                "Double Top (Sell)": "M頭(賣訊)", "Head & Shoulders Bottom": "頭肩底", 
+                "Head & Shoulders Top": "頭肩頂(賣訊)", "Triangle Squeeze": "三角收斂", 
+                "Cup & Handle": "杯柄型態", "Rounding Bottom": "圓弧底", 
+                "Bullish Engulfing": "長紅吞噬", "Hammer": "錘頭線",
+                "KD High Passivation": "🔥 KD高檔鈍化(強勢)", "KD Low Passivation": "⚠️ KD低檔鈍化(弱勢)"
             }
 
             if signals:
                 display_names = [name_map.get(s['name'], s['name']) for s in signals]
                 warn_signals = ["Double Top (Sell)", "Head & Shoulders Top", "KD Low Passivation"]
                 is_danger = any(s['name'] in warn_signals for s in signals)
-                
                 if is_danger:
                     st.error(f"⚠️ 警告訊號：{' + '.join(display_names)}")
                 else:
                     st.success(f"🔥 發現訊號：{' + '.join(display_names)}")
-                
                 eng_names = [s['name'] for s in signals]
                 title_text = f"{stock_id} Pattern: {' + '.join(eng_names)}"
                 
@@ -254,44 +239,31 @@ if run_btn or stock_id:
             else:
                 st.info("👀 目前無特定型態。")
 
-            # --- 自動畫支撐/壓力線邏輯 ---
             if show_sr or not h_lines:
                 short_high = df['High'].iloc[-20:].max()
                 short_low = df['Low'].iloc[-20:].min()
                 medium_high = df['High'].iloc[-60:].max()
                 medium_low = df['Low'].iloc[-60:].min()
-                
                 if abs(short_high - medium_high) / medium_high > 0.02:
                     h_lines.append(short_high)
                     h_colors.append('orange') 
                 h_lines.append(medium_high)
                 h_colors.append('red') 
-                
                 if abs(short_low - medium_low) / medium_low > 0.02:
                     h_lines.append(short_low)
                     h_colors.append('skyblue') 
                 h_lines.append(medium_low)
                 h_colors.append('blue') 
-                
                 st.caption(f"**短線 (20日)**：{short_high:.2f} (壓力) / {short_low:.2f} (支撐)")
                 st.caption(f"**波段 (60日)**：{medium_high:.2f} (壓力) / {medium_low:.2f} (支撐)")
 
-            # --- 繪圖區 (成交量顏色暴力修正) ---
-            
-            # 【關鍵】加入成交量副圖 (Panel 1)
-            # 使用我們手動算好的 vol_colors 列表，這會強制覆蓋任何預設顏色
+            # --- 繪圖區 (加入正確的成交量) ---
             ap.append(mpf.make_addplot(plot_data['Volume'], type='bar', panel=1, color=vol_colors, ylabel='Volume'))
 
             plot_args = dict(
-                type='candle', 
-                style=s, 
-                volume=False, # 絕對要關閉主圖的自動成交量，否則會重疊
-                mav=(5, 20, 60), 
-                title=title_text, 
-                returnfig=True,
-                panel_ratios=(3, 1) # 3:1 的比例讓成交量不要太矮
+                type='candle', style=s, volume=False, mav=(5, 20, 60), 
+                title=title_text, returnfig=True, panel_ratios=(3, 1)
             )
-            
             if h_lines: 
                 plot_args['hlines'] = dict(hlines=h_lines, colors=h_colors, linestyle='-.', linewidths=1.5)
             if ap: 
@@ -300,26 +272,7 @@ if run_btn or stock_id:
             fig, ax = mpf.plot(plot_data, **plot_args)
             st.pyplot(fig)
             
-            # --- 數據驗證區 (抓兇手用) ---
-            with st.expander("🛠️ 點擊展開：成交量顏色數據驗證 (Debug)"):
-                st.write("如果這裡顯示的顏色是對的，但圖是錯的，那就是繪圖庫的問題。")
-                st.write("邏輯：收盤 >= 昨收 -> Red (紅)；收盤 < 昨收 -> Green (綠)")
-                
-                # 準備驗證資料表
-                debug_df = plot_data[['Close', 'Volume', 'VolColor']].copy()
-                debug_df['Prev Close'] = df['Close'].shift(1).loc[plot_data.index] # 抓回昨收
-                debug_df['Change'] = debug_df['Close'] - debug_df['Prev Close']
-                
-                # 整理顯示格式
-                debug_df = debug_df[['Prev Close', 'Close', 'Change', 'VolColor', 'Volume']]
-                # 顯示最後 5 筆
-                st.dataframe(debug_df.tail(5).style.format({
-                    'Prev Close': '{:.2f}', 
-                    'Close': '{:.2f}', 
-                    'Change': '{:.2f}'
-                }))
-
-            # --- 底部說明區 ---
+            # --- 底部說明區 (已還原完整版) ---
             st.markdown("---")
             st.markdown("""
             ### 📝 圖表判讀說明
