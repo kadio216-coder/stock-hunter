@@ -4,6 +4,7 @@ import pandas as pd
 import mplfinance as mpf
 import twstock
 import numpy as np
+import matplotlib.pyplot as plt
 
 # --- 1. 頁面設定 ---
 st.set_page_config(page_title="股票型態分析", layout="wide")
@@ -16,7 +17,7 @@ with st.sidebar:
     st.caption("範例：2330.TW (上市) / 3491.TWO (上櫃)")
     
     # 功能開關
-    show_sr = st.checkbox("顯示預設支撐/壓力 (虛線)", value=True)
+    show_sr = st.checkbox("顯示預設支撐/壓力 (色塊)", value=True)
     
     run_btn = st.button("開始分析", type="primary")
 
@@ -79,7 +80,7 @@ def check_patterns(df):
     elif (last_3_k < 20).all():
         signals.append({"name": "KD Low Passivation", "type": "text"})
 
-    # 2. 箱型整理 (放寬標準)
+    # 2. 箱型整理
     period_high = df['High'].iloc[-60:-1].max()
     period_low = df['Low'].iloc[-60:-1].min()
     amp = (period_high - period_low) / period_low
@@ -89,7 +90,8 @@ def check_patterns(df):
             signals.append({"name": "Box Breakout", "type": "box", "levels": [period_high, period_low], "colors": ['red', 'green']})
         elif period_low < today['Close'] < period_high:
             if today['Close'] > (period_low + period_high)/2:
-                signals.append({"name": "Box Consolidation", "type": "box", "levels": [period_high, period_low], "colors": ['orange', 'blue']})
+                # 這裡顏色改用 'orange' 代表箱型區域
+                signals.append({"name": "Box Consolidation", "type": "box", "levels": [period_high, period_low], "colors": ['orange']})
     
     # 3. W底
     recent_low = df['Low'].iloc[-10:].min()
@@ -107,7 +109,7 @@ def check_patterns(df):
     # 5. 頭肩底/頂
     data_hs = df.iloc[-60:]
     p1 = data_hs['Low'].iloc[0:20].min()
-    p2 = data_hs['Low'].iloc[20:40].min() # Head
+    p2 = data_hs['Low'].iloc[20:40].min() 
     p3 = data_hs['Low'].iloc[40:].min()
     if (p2 < p1) and (p2 < p3): 
         signals.append({"name": "Head & Shoulders Bottom", "type": "line", "levels": [p2], "colors": ['blue']})
@@ -150,7 +152,7 @@ if run_btn or stock_id:
         else:
             stock_name = get_stock_name(stock_id)
             
-            # --- 成交量顏色 (精準版) ---
+            # 成交量顏色 (精準券商版：漲紅跌綠，平盤看K棒)
             prev_close = df['Close'].shift(1).fillna(0)
             def get_vol_color(row):
                 if row['Close'] > row['PrevClose']: return 'red'
@@ -191,6 +193,9 @@ if run_btn or stock_id:
                 "KD High Passivation": "🔥 KD高檔鈍化", "KD Low Passivation": "⚠️ KD低檔鈍化"
             }
 
+            # 準備色塊資料 (取代原本的 hlines)
+            fill_zones = [] # 格式: (y_min, y_max, color)
+            
             if signals:
                 display_names = [name_map.get(s['name'], s['name']) for s in signals]
                 warn_signals = ["Double Top (Sell)", "Head & Shoulders Top", "KD Low Passivation"]
@@ -204,30 +209,42 @@ if run_btn or stock_id:
                 title_text = f"{stock_id} Pattern: {' + '.join(eng_names)}"
                 
                 for sig in signals:
-                    # 型態線改用 make_addplot 畫 (粗實線，確保蓋在最上層)
-                    if 'levels' in sig:
-                        for level in sig['levels']:
-                            color = sig['colors'][0]
-                            line_data = [level] * len(plot_data)
-                            ap.append(mpf.make_addplot(line_data, color=color, width=2.5, linestyle='-'))
+                    # 處理色塊邏輯
+                    if sig['type'] == 'box':
+                        # 箱型：直接塗滿高低點之間
+                        high = max(sig['levels'])
+                        low = min(sig['levels'])
+                        color = sig['colors'][0]
+                        fill_zones.append((low, high, color))
+                        
+                    elif sig['type'] == 'line' and 'levels' in sig:
+                        # 單線型態 (頸線/支撐)：畫成一個上下 1% 的寬帶
+                        level = sig['levels'][0]
+                        color = sig['colors'][0]
+                        fill_zones.append((level * 0.99, level * 1.01, color))
 
+                    # 布林通道維持原樣
                     if sig.get('type') == 'bollinger':
                         ap.append(mpf.make_addplot(sig['data'][0].iloc[-120:], color='gray', alpha=0.5))
                         ap.append(mpf.make_addplot(sig['data'][1].iloc[-120:], color='gray', alpha=0.5))
             else:
-                st.info("👀 目前無特定型態 (顯示預設支撐壓力)。")
+                st.info("👀 目前無特定型態 (顯示預設支撐壓力色塊)。")
 
-            # 計算預設支撐/壓力 (使用 hlines 畫背景虛線)
-            default_lines = []
-            default_colors = []
+            # 計算預設支撐/壓力 (轉換為色塊)
             if show_sr:
                 short_high = df['High'].iloc[-20:].max()
                 short_low = df['Low'].iloc[-20:].min()
                 medium_high = df['High'].iloc[-60:].max()
                 medium_low = df['Low'].iloc[-60:].min()
                 
-                default_lines = [short_high, short_low, medium_high, medium_low]
-                default_colors = ['orange', 'skyblue', 'red', 'blue']
+                # 波段(60日)的色塊常駐
+                fill_zones.append((medium_high * 0.995, medium_high * 1.005, 'red')) # 波段壓
+                fill_zones.append((medium_low * 0.995, medium_low * 1.005, 'blue'))  # 波段撐
+                
+                # 如果沒有偵測到更強的型態，再畫短線色塊
+                if not signals:
+                    fill_zones.append((short_high * 0.995, short_high * 1.005, 'orange'))
+                    fill_zones.append((short_low * 0.995, short_low * 1.005, 'skyblue'))
 
             # --- 繪圖區 ---
             ap.append(mpf.make_addplot(plot_data['Volume'], type='bar', panel=1, color=vol_colors, ylabel='Volume'))
@@ -237,16 +254,20 @@ if run_btn or stock_id:
                 title=title_text, returnfig=True, panel_ratios=(3, 1)
             )
             
-            if default_lines: 
-                plot_args['hlines'] = dict(hlines=default_lines, colors=default_colors, linestyle='-.', linewidths=1.0, alpha=0.6)
-            
             if ap: 
                 plot_args['addplot'] = ap
 
-            fig, ax = mpf.plot(plot_data, **plot_args)
+            # 使用 returnfig=True 拿到 figure 物件，手動畫色塊
+            fig, axlist = mpf.plot(plot_data, **plot_args)
+            ax_main = axlist[0] # 主圖表 axes
+
+            # 畫出所有色塊 (Zones)
+            for y1, y2, color in fill_zones:
+                ax_main.axhspan(y1, y2, color=color, alpha=0.15) 
+
             st.pyplot(fig)
 
-            # --- 底部說明區 (已還原完整版) ---
+            # --- 說明區 (完全還原詳細版 + 修正視覺描述) ---
             st.markdown("---")
             st.markdown("""
             ### 📝 圖表判讀說明
@@ -272,16 +293,17 @@ if run_btn or stock_id:
                     * **杯柄型態 (Cup & Handle)**：因為杯子需要時間打底，所以抓 120 天來確認左杯緣、杯底和右杯緣。
                     * **圓弧底 (Rounding Bottom)**：同樣需要長時間沉澱，所以比較 120 天內的頭尾與中間低點。
 
-            #### 2. 🎨 線條顏色意義 (型態視覺化)
-            * **🟥 紅色 / 🟧 橘色**：壓力線 (箱頂、頸線壓力、K線轉折高點)。
-            * **🟦 藍色 / 🟦 淺藍**：支撐線 (箱底、W底支撐、圓弧底)。
-            * **🟩 綠色**：空方型態確認線 (M頭、頭肩頂)。
-            * **實線 vs 虛線**：**粗實線**代表確認的技術型態，**細虛線**代表預設的波段高低點參考。
+            #### 2. 🎨 圖表顏色意義 (色塊視覺化)
+            為了讓支撐與壓力更直觀，圖表已將「線條」改為「背景色塊」顯示：
+            * **🟦 藍色色塊**：**支撐區 (Support Zone)**。包含 W底頸線、箱型底部、波段低點。股價跌入此區容易有撐。
+            * **🟥 紅色色塊**：**壓力區 (Resistance Zone)**。包含 M頭頸線、箱型頂部、波段高點。股價漲入此區容易遇壓。
+            * **🟧 橘色色塊**：**箱型整理區 (Consolidation)**。當出現大面積橘色背景時，代表股價正在箱子裡震盪。
+            * **🟩 綠色色塊**：**頭部型態 (Top Pattern)**。如頭肩頂、M頭的確認訊號。
 
             #### 3. 📈 均線代表
             * 🟦 **藍線 5日** (週線) / 🟧 **橘線 20日** (月線) / 🟩 **綠線 60日** (季線)。
 
             #### 4. 🛡️ 關鍵支撐與壓力 (若無型態時顯示)
-            * **短線 (20日)**：🔸 淺橘虛線 (壓力) / 🔹 淺藍虛線 (支撐)
-            * **波段 (60日)**：🔴 深紅虛線 (壓力) / 🔵 深藍虛線 (支撐)
+            * **短線 (20日)**：顯示淺橘色塊 (壓力) / 淺藍色塊 (支撐)
+            * **波段 (60日)**：顯示淡紅色塊 (壓力) / 淡藍色塊 (支撐)
             """)
