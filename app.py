@@ -3,11 +3,11 @@ import yfinance as yf
 import pandas as pd
 import mplfinance as mpf
 import twstock
+import numpy as np # 新增 numpy 來做快速判斷
 
 # --- 1. 頁面設定 ---
 st.set_page_config(page_title="股票型態分析", layout="wide")
 st.title("📈 股票型態分析")
-# (原本的文字說明已移除)
 
 # --- 2. 側邊欄輸入 ---
 with st.sidebar:
@@ -73,7 +73,7 @@ def check_patterns(df):
     today = df.iloc[-1]
     prev = df.iloc[-2]
     
-    # --- A. KD 鈍化 (文字+標示) ---
+    # --- A. KD 鈍化 ---
     last_3_k = df_kd['K'].iloc[-3:]
     if (last_3_k > 80).all():
         signals.append({"name": "KD High Passivation", "type": "text"})
@@ -115,16 +115,16 @@ def check_patterns(df):
     if (p2 < p1) and (p2 < p3) and (0.9 < p1/p3 < 1.1):
         signals.append({"name": "Head & Shoulders Bottom", "type": "line", "levels": [p2], "colors": ['blue']})
 
-    # 4b. 頭肩頂 (Head & Shoulders Top) - 賣訊
+    # 4b. 頭肩頂
     p1_h = data_hs['High'].iloc[0:20].max()
-    p2_h = data_hs['High'].iloc[20:40].max() # Head
+    p2_h = data_hs['High'].iloc[20:40].max() 
     p3_h = data_hs['High'].iloc[40:].max()
     if (p2_h > p1_h) and (p2_h > p3_h):
         neckline = data_hs['Low'].min()
         if today['Close'] < neckline:
              signals.append({"name": "Head & Shoulders Top", "type": "line", "levels": [p2_h], "colors": ['green']})
 
-    # 5. 三角收斂 (高靈敏版)
+    # 5. 三角收斂
     ma20 = df['Close'].rolling(20).mean()
     std20 = df['Close'].rolling(20).std()
     bw = ((ma20+2*std20) - (ma20-2*std20))/ma20
@@ -147,7 +147,7 @@ def check_patterns(df):
     if (mid_low < start_high * 0.8) and (abs(start_high - end_high) / start_high < 0.1):
         signals.append({"name": "Rounding Bottom", "type": "line", "levels": [mid_low], "colors": ['blue']})
 
-    # --- C. K線型態 (畫線標示) ---
+    # --- C. K線型態 ---
     
     # 8. 長紅吞噬
     is_engulfing = (prev['Close'] < prev['Open']) and (today['Close'] > today['Open']) and (today['Close'] > prev['Open']) and (today['Open'] < prev['Close'])
@@ -228,11 +228,9 @@ if run_btn or stock_id:
                 title_text = f"{stock_id} Pattern: {' + '.join(eng_names)}"
                 
                 for sig in signals:
-                    # 畫水平線
                     if 'levels' in sig:
                         h_lines.extend(sig['levels'])
                         h_colors.extend(sig['colors'])
-                    # 畫額外指標 (布林通道)
                     if sig.get('type') == 'bollinger':
                         ap.append(mpf.make_addplot(sig['data'][0].iloc[-120:], color='gray', alpha=0.5))
                         ap.append(mpf.make_addplot(sig['data'][1].iloc[-120:], color='gray', alpha=0.5))
@@ -261,21 +259,32 @@ if run_btn or stock_id:
                 st.caption(f"**短線 (20日)**：{short_high:.2f} (壓力) / {short_low:.2f} (支撐)")
                 st.caption(f"**波段 (60日)**：{medium_high:.2f} (壓力) / {medium_low:.2f} (支撐)")
 
-            # --- 繪圖區 (成交量顏色修正版) ---
+            # --- 繪圖區 (終極修正成交量顏色) ---
             plot_data = df.iloc[-120:]
+            
+            # 使用 numpy 進行向量化比較：比較「plot_data 的 Close」與「plot_data 往前推一天的 Close」
+            # 這樣保證比較基準完全正確
+            closes = plot_data['Close'].values
+            
+            # 取得對應這 120 天的前一日收盤價 (從原始 df 抓，確保 index 對齊)
+            # 邏輯：plot_data 是 df 的最後 120 筆。我們需要 df 的倒數 121 筆到倒數第 2 筆作為 prev_close
+            prev_closes = df['Close'].iloc[-121:-1].values
+            
+            # 建立顏色陣列
+            vol_colors = []
+            for curr, prev in zip(closes, prev_closes):
+                if curr >= prev:
+                    vol_colors.append('red')   # 漲或平盤 -> 紅
+                else:
+                    vol_colors.append('green') # 跌 -> 綠
 
-            # 1. 製作成交量顏色陣列 (漲紅跌綠)
-            price_diff = df['Close'].diff()
-            vol_colors_full = price_diff.apply(lambda x: 'red' if x >= 0 else 'green')
-            vol_colors = vol_colors_full.iloc[-120:].tolist()
-
-            # 2. 加入成交量副圖 (panel=1)
+            # 加入成交量副圖
             ap.append(mpf.make_addplot(plot_data['Volume'], type='bar', panel=1, color=vol_colors, ylabel='Volume'))
 
             plot_args = dict(
                 type='candle', 
                 style=s, 
-                volume=False, 
+                volume=False, # 關閉預設，改用上方自定義的 addplot
                 mav=(5, 20, 60), 
                 title=title_text, 
                 returnfig=True,
@@ -296,13 +305,13 @@ if run_btn or stock_id:
             ### 📝 圖表判讀說明
 
             #### 1. 🔍 型態偵測區間詳解
-            * ** KD 鈍化 (極端趨勢)**：
+            * ** KD 鈍化 (極端趨勢)**
                 * **🔥 高檔鈍化** (K > 80 連 3 日)：多頭極強，行情可能噴出。
                 * **⚠️ 低檔鈍化** (K < 20 連 3 日)：空頭極弱，小心殺盤重心。
             * ** 短期型態 (K線轉折)**
                 * **偵測區間**：過去 2 天
                 * **包含型態**：長紅吞噬 (Bullish Engulfing)、錘頭線 (Hammer)
-                * **邏輯**：只比較「今天」與「昨天」的開盤、收盤與最高最低價，用來抓極短線轉折。
+                * **邏輯**：抓極短線 K 線轉折訊號。
             * ** 中期波段型態 (最常用)**
                 * **偵測區間**：過去 60 個交易日 (約 3 個月 / 一季)
                 * **包含型態**：
