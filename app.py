@@ -5,7 +5,6 @@ import mplfinance as mpf
 import twstock
 import numpy as np
 import matplotlib.pyplot as plt
-import matplotlib.patches as patches
 
 # --- 1. 頁面設定 ---
 st.set_page_config(page_title="股票型態分析", layout="wide")
@@ -16,6 +15,9 @@ with st.sidebar:
     st.header("設定")
     stock_id = st.text_input("輸入股票代號", value="2359.TW") 
     st.caption("範例：2330.TW (上市) / 3491.TWO (上櫃)")
+    
+    # 選項：是否顯示支撐壓力線
+    show_lines = st.checkbox("顯示支撐/壓力線 (虛線)", value=True)
     
     run_btn = st.button("開始分析", type="primary")
 
@@ -61,7 +63,7 @@ def calculate_kd(df, n=9):
     return data
 
 def check_patterns(df):
-    """偵測技術型態"""
+    """偵測技術型態，回傳型態名稱、持續天數、顏色"""
     signals = []
     df_kd = calculate_kd(df)
     today = df.iloc[-1]
@@ -73,100 +75,77 @@ def check_patterns(df):
     elif (last_3_k < 20).all():
         signals.append({"name": "KD Low Passivation", "type": "text"})
 
-    # 2. 箱型整理 (Box)
+    # 2. 箱型整理 (Box) - 60天
     period_high = df['High'].iloc[-60:-1].max()
     period_low = df['Low'].iloc[-60:-1].min()
     amp = (period_high - period_low) / period_low
-    rect_info = [period_high, period_low, 60]
     
     if amp < 0.50:
         if today['Close'] > period_high:
-            signals.append({"name": "Box Breakout", "type": "pattern", "rect": rect_info, "color": "red"})
+            signals.append({"name": "Box Breakout", "duration": 60, "color": "red", "alpha": 0.2})
         elif period_low < today['Close'] < period_high:
             if today['Close'] > (period_low + period_high)/2:
-                signals.append({"name": "Box Consolidation", "type": "pattern", "rect": rect_info, "color": "orange"})
+                signals.append({"name": "Box Consolidation", "duration": 60, "color": "orange", "alpha": 0.15})
     
-    # 3. W底 / M頭
+    # 3. W底 / M頭 - 60天
     recent_low = df['Low'].iloc[-10:].min()
     prev_low = df['Low'].iloc[-60:-20].min()
-    w_high = df['High'].iloc[-60:].max()
-    
     recent_high = df['High'].iloc[-10:].max()
     prev_high = df['High'].iloc[-60:-20].max()
-    m_low = df['Low'].iloc[-60:].min()
 
     if 0.90 < (recent_low/prev_low) < 1.10 and today['Close'] > recent_low*1.05:
-        signals.append({"name": "Double Bottom", "type": "pattern", "rect": [w_high, recent_low, 60], "color": "blue"})
+        signals.append({"name": "Double Bottom", "duration": 60, "color": "blue", "alpha": 0.15})
 
     if 0.90 < (recent_high/prev_high) < 1.10:
         if today['Close'] < df['Low'].iloc[-20:].min():
-             signals.append({"name": "Double Top (Sell)", "type": "pattern", "rect": [recent_high, m_low, 60], "color": "green"})
+             signals.append({"name": "Double Top (Sell)", "duration": 60, "color": "green", "alpha": 0.15})
 
-    # 4. 頭肩底/頂
+    # 4. 頭肩底/頂 - 60天
     data_hs = df.iloc[-60:]
     p1 = data_hs['Low'].iloc[0:20].min()
     p2 = data_hs['Low'].iloc[20:40].min() 
     p3 = data_hs['Low'].iloc[40:].min()
-    hs_high = data_hs['High'].max()
     
     if (p2 < p1) and (p2 < p3): 
-        signals.append({"name": "Head & Shoulders Bottom", "type": "pattern", "rect": [hs_high, p2, 60], "color": "blue"})
+        signals.append({"name": "Head & Shoulders Bottom", "duration": 60, "color": "blue", "alpha": 0.15})
 
     p1_h = data_hs['High'].iloc[0:20].max()
     p2_h = data_hs['High'].iloc[20:40].max() 
     p3_h = data_hs['High'].iloc[40:].max()
-    hs_low = data_hs['Low'].min()
     
     if (p2_h > p1_h) and (p2_h > p3_h):
         neckline = data_hs['Low'].min()
         if today['Close'] < neckline:
-             signals.append({"name": "Head & Shoulders Top", "type": "pattern", "rect": [p2_h, hs_low, 60], "color": "green"})
+             signals.append({"name": "Head & Shoulders Top", "duration": 60, "color": "green", "alpha": 0.15})
 
-    # 5. 三角收斂 (頂點追蹤修正版)
+    # 5. 三角收斂 (60天大收斂)
     ma_period = 60
     ma = df['Close'].rolling(ma_period).mean()
     std = df['Close'].rolling(ma_period).std()
     bw = ((ma + 2*std) - (ma - 2*std)) / ma
     
     if bw.iloc[-5:].min() < 0.20:
-         # 取出過去 60 天的資料片段
-         recent_data = df.iloc[-ma_period:]
-         
-         # 1. 找出區間內 "最高價" 是多少，以及它是 "幾天前" 發生的
-         # argmax() 回傳的是 index (日期)，我們需要轉成 "離今天幾天"
-         high_val = recent_data['High'].max()
-         high_date = recent_data['High'].idxmax()
-         # 計算相對位置 (例如: 50 表示 50 天前)
-         high_lag = len(df) - df.index.get_loc(high_date) - 1
-         
-         # 2. 找出區間內 "最低價" 是多少，以及它是 "幾天前" 發生的
-         low_val = recent_data['Low'].min()
-         low_date = recent_data['Low'].idxmin()
-         low_lag = len(df) - df.index.get_loc(low_date) - 1
-         
-         current_price = today['Close']
-         
-         # 傳遞完整的座標資訊：[高點價位, 高點距今幾天, 低點價位, 低點距今幾天, 收斂價位]
+         # 三角收斂使用黃色背景
          signals.append({
              "name": "Triangle Squeeze", 
-             "type": "triangle", 
-             "points_info": [high_val, high_lag, low_val, low_lag, current_price], 
-             "color": "yellow"
+             "duration": 60, 
+             "color": "yellow", 
+             "alpha": 0.2
          })
 
-    # 6. 杯柄/圓弧
+    # 6. 杯柄/圓弧 - 120天
     data_ch = df.iloc[-120:]
     left_rim = data_ch['High'].iloc[:40].max()
     bottom = data_ch['Low'].iloc[40:100].min()
     right_rim = data_ch['High'].iloc[100:].max()
     if (bottom < left_rim * 0.85) and (0.9 < right_rim/left_rim < 1.1):
         if today['Close'] > right_rim * 0.9:
-             signals.append({"name": "Cup & Handle", "type": "pattern", "rect": [right_rim, bottom, 120], "color": "orange"})
+             signals.append({"name": "Cup & Handle", "duration": 120, "color": "orange", "alpha": 0.15})
     
     mid_low = df['Low'].iloc[-80:-40].mean()
     start_high = df['High'].iloc[-120:-100].mean()
     if (mid_low < start_high * 0.8):
-        signals.append({"name": "Rounding Bottom", "type": "pattern", "rect": [start_high, mid_low, 120], "color": "blue"})
+        signals.append({"name": "Rounding Bottom", "duration": 120, "color": "blue", "alpha": 0.15})
 
     return signals
 
@@ -180,7 +159,7 @@ if run_btn or stock_id:
         else:
             stock_name = get_stock_name(stock_id)
             
-            # 成交量顏色
+            # 成交量顏色 (精準券商版)
             prev_close = df['Close'].shift(1).fillna(0)
             def get_vol_color(row):
                 if row['Close'] > row['PrevClose']: return 'red'
@@ -215,12 +194,12 @@ if run_btn or stock_id:
                 "Box Breakout": "箱型突破", "Box Consolidation": "箱型整理中", "Double Bottom": "W底", 
                 "Double Top (Sell)": "M頭(賣訊)", "Head & Shoulders Bottom": "頭肩底", 
                 "Head & Shoulders Top": "頭肩頂(賣訊)", "Triangle Squeeze": "三角收斂", 
-                "Bullish Engulfing": "長紅吞噬", "Hammer": "錘頭線", "Cup & Handle": "杯柄型態", "Rounding Bottom": "圓弧底",
+                "Cup & Handle": "杯柄型態", "Rounding Bottom": "圓弧底",
                 "KD High Passivation": "🔥 KD高檔鈍化", "KD Low Passivation": "⚠️ KD低檔鈍化"
             }
 
             if signals:
-                display_names = [name_map.get(s['name'], s['name']) for s in signals]
+                display_names = [name_map.get(s['name'], s['name']) for s in signals if 'name' in s]
                 warn_signals = ["Double Top (Sell)", "Head & Shoulders Top", "KD Low Passivation"]
                 is_danger = any(s['name'] in warn_signals for s in signals)
                 if is_danger:
@@ -242,58 +221,43 @@ if run_btn or stock_id:
                 title=title_text, returnfig=True, panel_ratios=(3, 1)
             )
             
+            # --- 支撐/壓力線 (還原) ---
+            if show_lines:
+                short_high = df['High'].iloc[-20:].max()
+                short_low = df['Low'].iloc[-20:].min()
+                medium_high = df['High'].iloc[-60:].max()
+                medium_low = df['Low'].iloc[-60:].min()
+                
+                # 設定線條：短線(橘/淺藍), 中線(紅/深藍)
+                lines = [short_high, short_low, medium_high, medium_low]
+                colors = ['orange', 'skyblue', 'red', 'blue']
+                
+                plot_args['hlines'] = dict(hlines=lines, colors=colors, linestyle='-.', linewidths=1.0, alpha=0.7)
+            
             if ap: plot_args['addplot'] = ap
 
             fig, axlist = mpf.plot(plot_data, **plot_args)
             ax_main = axlist[0] 
 
-            # --- 繪製型態色塊 ---
+            # --- 繪製全版背景色塊 (Vertical Span) ---
             total_len = len(plot_data)
             
             for sig in signals:
-                color = sig.get('color', 'blue')
-                
-                # 1. 繪製矩形 (箱型、底/頭)
-                if 'rect' in sig:
-                    top, bottom, duration = sig['rect']
+                if 'duration' in sig:
+                    duration = sig['duration']
+                    color = sig.get('color', 'gray')
+                    alpha = sig.get('alpha', 0.1)
+                    
+                    # 計算 x 軸範圍 (從最後一天往回推 duration 天)
                     x_end = total_len - 1
                     x_start = max(0, x_end - duration)
-                    width = x_end - x_start
-                    height = top - bottom
                     
-                    rect = patches.Rectangle(
-                        (x_start, bottom), width, height,
-                        linewidth=2, edgecolor=color, facecolor=color, alpha=0.2
-                    )
-                    ax_main.add_patch(rect)
-                
-                # 2. 繪製三角形 (精準頂點版)
-                elif sig.get('type') == 'triangle':
-                    # 解包我們剛剛算好的精確座標
-                    high_val, high_lag, low_val, low_lag, curr_price = sig['points_info']
-                    
-                    x_end = total_len - 1
-                    # 換算高低點在圖表上的絕對 x 座標
-                    x_high = x_end - high_lag
-                    x_low = x_end - low_lag
-                    
-                    # 定義三角形三個頂點
-                    triangle_points = [
-                        [x_high, high_val], # 真正的高點 (可能在左邊任何位置)
-                        [x_low, low_val],   # 真正的低點
-                        [x_end, curr_price] # 右側收斂點
-                    ]
-                    
-                    tri = patches.Polygon(
-                        triangle_points,
-                        closed=True,
-                        linewidth=1.5, edgecolor='#FBC02D', facecolor='#FFF176', alpha=0.3
-                    )
-                    ax_main.add_patch(tri)
+                    # 使用 axvspan 繪製垂直背景色塊 (涵蓋整個上下範圍)
+                    ax_main.axvspan(x_start, x_end, facecolor=color, alpha=alpha)
 
             st.pyplot(fig)
 
-            # --- 說明區 ---
+            # --- 說明區 (完全還原詳細版) ---
             st.markdown("---")
             st.markdown("""
             ### 📝 圖表判讀說明
@@ -319,14 +283,18 @@ if run_btn or stock_id:
                     * **杯柄型態 (Cup & Handle)**：因為杯子需要時間打底，所以抓 120 天來確認左杯緣、杯底和右杯緣。
                     * **圓弧底 (Rounding Bottom)**：同樣需要長時間沉澱，所以比較 120 天內的頭尾與中間低點。
 
-            #### 2. 🎨 色塊框選意義 (Time-Specific)
-            圖表上會出現半透明的色塊，框住型態發生的 **「時間」** 與 **「價格範圍」**：
-            * **🟨 黃色三角形**：**三角收斂區**。頂點會精準連線至波段的最高點與最低點，顯示價格壓縮的過程。
-            * **🟧 橘色方框**：**箱型整理區**。股價在這個長方形箱子裡上下震盪。
-            * **🟥 紅色方框**：**突破訊號**。股價強勢衝出整理區間。
-            * **🟦 藍色方框**：**底部型態** (W底、頭肩底、圓弧底)。
-            * **🟩 綠色方框**：**頭部型態** (M頭、頭肩頂)。
+            #### 2. 🎨 型態背景顏色意義 (Pattern Zones)
+            當偵測到特定型態時，該時間段的背景會顯示對應顏色：
+            * **🟨 黃色背景**：**三角收斂區**。股價波動壓縮，多空即將表態。
+            * **🟧 橘色背景**：**箱型整理 / 杯柄**。股價在區間內震盪。
+            * **🟥 紅色背景**：**突破訊號**。股價轉強，突破整理區間。
+            * **🟦 藍色背景**：**底部型態** (W底、頭肩底、圓弧底)。打底完成，支撐強勁。
+            * **🟩 綠色背景**：**頭部型態** (M頭、頭肩頂)。高檔做頭，小心回檔。
 
-            #### 3. 📈 均線代表
+            #### 3. 🛡️ 支撐與壓力線 (虛線)
+            * **短線 (20日)**：🔸 淺橘虛線 (壓力) / 🔹 淺藍虛線 (支撐)
+            * **波段 (60日)**：🔴 深紅虛線 (壓力) / 🔵 深藍虛線 (支撐)
+
+            #### 4. 📈 均線代表
             * 🟦 **藍線 5日** (週線) / 🟧 **橘線 20日** (月線) / 🟩 **綠線 60日** (季線)。
             """)
