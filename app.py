@@ -3,6 +3,7 @@ import yfinance as yf
 import pandas as pd
 import mplfinance as mpf
 import twstock
+import numpy as np
 
 # --- 1. 頁面設定 ---
 st.set_page_config(page_title="股票型態分析", layout="wide")
@@ -165,28 +166,45 @@ def check_patterns(df):
 # --- 4. 主程式執行 ---
 if run_btn or stock_id:
     with st.spinner(f"正在分析 {stock_id} ..."):
+        # 1. 下載資料
         df = get_data(stock_id)
         
         if df is None:
             st.error(f"❌ 找不到 {stock_id} 的資料，請確認代號是否正確。")
         else:
             stock_name = get_stock_name(stock_id)
-            last_price = df['Close'].iloc[-1]
-            last_vol = df['Volume'].iloc[-1]
-            change = last_price - df['Close'].iloc[-2]
-            pct_change = (change / df['Close'].iloc[-2]) * 100
+            
+            # 2. 【關鍵修正】先在原始資料計算好成交量顏色，避免切片後錯位
+            # 邏輯：今天收盤 - 昨天收盤。>=0 為紅，<0 為綠
+            # 使用 shift(1) 來抓昨天的收盤價，確保對齊
+            change = df['Close'] - df['Close'].shift(1)
+            # 填補第一筆 NaN 為 0，避免報錯 (雖然切片後看不到第一筆)
+            change = change.fillna(0)
+            
+            # 建立顏色 list (整張表都算好)
+            # np.where(條件, 符合時的值, 不符合時的值)
+            df['VolColor'] = np.where(change >= 0, 'red', 'green')
+
+            # 3. 現在才開始切片 (取最後 120 天)
+            plot_data = df.iloc[-120:]
+            
+            # 取得切片後的最後一筆資料顯示用
+            last_price = plot_data['Close'].iloc[-1]
+            last_vol = plot_data['Volume'].iloc[-1]
+            last_change = change.iloc[-1] # 使用我們剛剛算好的 change
+            pct_change = (last_change / df['Close'].iloc[-2]) * 100
             
             # 顯示資訊看板
             st.subheader(f"{stock_name} ({stock_id})")
             col1, col2, col3 = st.columns(3)
-            col1.metric("收盤價", f"{last_price:.2f}", f"{change:.2f} ({pct_change:.2f}%)")
+            col1.metric("收盤價", f"{last_price:.2f}", f"{last_change:.2f} ({pct_change:.2f}%)")
             col2.metric("成交量", f"{int(last_vol/1000)} 張")
-            col3.markdown(f"**資料日期**: {df.index[-1].date()}")
+            col3.markdown(f"**資料日期**: {plot_data.index[-1].date()}")
             
-            # 執行型態偵測
+            # 執行型態偵測 (傳入 full df)
             signals = check_patterns(df)
             
-            # 設定台股配色
+            # 設定台股配色 (K線顏色)
             mc = mpf.make_marketcolors(up='r', down='g', edge='inherit', wick='inherit', volume='inherit')
             s = mpf.make_mpf_style(marketcolors=mc, gridstyle=':', y_on_right=True)
             
@@ -257,30 +275,19 @@ if run_btn or stock_id:
                 st.caption(f"**短線 (20日)**：{short_high:.2f} (壓力) / {short_low:.2f} (支撐)")
                 st.caption(f"**波段 (60日)**：{medium_high:.2f} (壓力) / {medium_low:.2f} (支撐)")
 
-            # --- 繪圖區 (修正成交量顏色) ---
-            plot_data = df.iloc[-120:]
+            # --- 繪圖區 (成交量顏色終極修正) ---
             
-            # 1. 製作成交量顏色陣列 (漲紅跌綠)
-            # 使用 Pandas 原生的 diff() 進行計算，這樣會自動對齊 Index
-            # diff() 是 Today - Yesterday
-            # 填補 NaN 為 0 (第一筆)
-            price_diff = df['Close'].diff().fillna(0)
-            
-            # 2. 轉換顏色 (整年一起轉，不會錯位)
-            # 邏輯：漲或平盤(>=0) -> 紅, 跌(<0) -> 綠
-            vol_colors_series = price_diff.apply(lambda x: 'red' if x >= 0 else 'green')
-            
-            # 3. 最後再切片取出這 120 天的顏色
-            # 因為 plot_data 是 df 的最後 120 筆，所以顏色也取最後 120 筆
-            final_vol_colors = vol_colors_series.iloc[-120:].tolist()
-
             # 4. 加入成交量副圖
-            ap.append(mpf.make_addplot(plot_data['Volume'], type='bar', panel=1, color=final_vol_colors, ylabel='Volume'))
+            # 直接使用我們剛剛在全域 df 算好、並切片過來的 'VolColor' 欄位
+            # 這樣顏色與日期絕對是 100% 對應的
+            vol_colors = plot_data['VolColor'].tolist()
+            
+            ap.append(mpf.make_addplot(plot_data['Volume'], type='bar', panel=1, color=vol_colors, ylabel='Volume'))
 
             plot_args = dict(
                 type='candle', 
                 style=s, 
-                volume=False, # 關閉預設，改用上方自定義的 addplot
+                volume=False, # 關閉預設
                 mav=(5, 20, 60), 
                 title=title_text, 
                 returnfig=True,
