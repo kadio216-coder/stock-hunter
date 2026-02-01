@@ -31,13 +31,10 @@ def get_stock_name(symbol):
 
 def get_data(symbol):
     try:
-        # 下載資料
         df = yf.download(symbol, period="1y", progress=False)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [c[0] for c in df.columns]
-        # 強制四捨五入
         df = df.round(2)
-        # 確保資料夠長，至少要有 120 天才能畫長線型態
         return df if len(df) > 120 else None
     except: return None
 
@@ -125,33 +122,25 @@ def check_patterns(df):
         if today['Close'] < neckline:
              signals.append({"name": "Head & Shoulders Top", "type": "pattern", "rect": [p2_h, hs_low, 60], "color": "green"})
 
-    # 5. 三角收斂 (升級版：60日季線等級收斂)
-    # 使用 60 日均線作為基準
+    # 5. 三角收斂 (大開口修正版)
     ma_period = 60
     ma = df['Close'].rolling(ma_period).mean()
     std = df['Close'].rolling(ma_period).std()
-    
-    # 布林通道頻寬
     bw = ((ma + 2*std) - (ma - 2*std)) / ma
     
-    # 判斷條件：最近 5 天內有出現頻寬小於 20% (季線等級波動大，稍微放寬標準)
     if bw.iloc[-5:].min() < 0.20:
-         # 尋找三角形的左側起點 (約 60 天前)
-         start_idx = -ma_period
-         
-         # 為了抓到更穩定的開口，取起點附近 5 天的極值
-         # 這樣可以避免因為剛好第 60 天波動小而導致三角形開口畫太小
-         start_high = df['High'].iloc[start_idx-5 : start_idx+5].max()
-         start_low = df['Low'].iloc[start_idx-5 : start_idx+5].min()
+         # 【關鍵修正】
+         # 不抓 "60天前的那一天的價格"，改抓 "這60天以來的最高價與最低價"
+         # 這樣三角形的左邊開口就會撐到最大
+         period_high = df['High'].iloc[-ma_period:].max()
+         period_low = df['Low'].iloc[-ma_period:].min()
          
          current_price = today['Close']
          
-         # 回傳 60 天的三角形座標
-         # [起點高, 起點低, 收斂點(現價), 持續天數]
          signals.append({
              "name": "Triangle Squeeze", 
              "type": "triangle", 
-             "coords": [start_high, start_low, current_price, ma_period], 
+             "coords": [period_high, period_low, current_price, ma_period], 
              "color": "yellow"
          })
 
@@ -268,7 +257,7 @@ if run_btn or stock_id:
                     )
                     ax_main.add_patch(rect)
                 
-                # 2. 繪製三角形 (三角收斂)
+                # 2. 繪製三角形 (大開口版)
                 elif sig.get('type') == 'triangle':
                     y_start_high, y_start_low, y_end, duration = sig['coords']
                     
@@ -277,12 +266,11 @@ if run_btn or stock_id:
                     
                     # 定義三角形
                     triangle_points = [
-                        [x_start, y_start_high],  # 左上 (60天前的高點)
-                        [x_start, y_start_low],   # 左下 (60天前的低點)
-                        [x_end, y_end]            # 右 (現在的收斂點)
+                        [x_start, y_start_high],  # 左上 (期間最高)
+                        [x_start, y_start_low],   # 左下 (期間最低)
+                        [x_end, y_end]            # 右 (收斂點)
                     ]
                     
-                    # 使用淡黃色填滿，邊框深一點
                     tri = patches.Polygon(
                         triangle_points,
                         closed=True,
@@ -290,7 +278,7 @@ if run_btn or stock_id:
                     )
                     ax_main.add_patch(tri)
                 
-                # 不顯示文字標籤
+                # 無文字
 
             st.pyplot(fig)
 
