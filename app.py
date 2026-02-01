@@ -3,7 +3,6 @@ import yfinance as yf
 import pandas as pd
 import mplfinance as mpf
 import twstock
-import numpy as np # 新增 numpy 來做快速判斷
 
 # --- 1. 頁面設定 ---
 st.set_page_config(page_title="股票型態分析", layout="wide")
@@ -215,7 +214,6 @@ if run_btn or stock_id:
 
             if signals:
                 display_names = [name_map.get(s['name'], s['name']) for s in signals]
-                # 警告訊號清單
                 warn_signals = ["Double Top (Sell)", "Head & Shoulders Top", "KD Low Passivation"]
                 is_danger = any(s['name'] in warn_signals for s in signals)
                 
@@ -259,27 +257,25 @@ if run_btn or stock_id:
                 st.caption(f"**短線 (20日)**：{short_high:.2f} (壓力) / {short_low:.2f} (支撐)")
                 st.caption(f"**波段 (60日)**：{medium_high:.2f} (壓力) / {medium_low:.2f} (支撐)")
 
-            # --- 繪圖區 (終極修正成交量顏色) ---
+            # --- 繪圖區 (修正成交量顏色) ---
             plot_data = df.iloc[-120:]
             
-            # 使用 numpy 進行向量化比較：比較「plot_data 的 Close」與「plot_data 往前推一天的 Close」
-            # 這樣保證比較基準完全正確
-            closes = plot_data['Close'].values
+            # 1. 製作成交量顏色陣列 (漲紅跌綠)
+            # 使用 Pandas 原生的 diff() 進行計算，這樣會自動對齊 Index
+            # diff() 是 Today - Yesterday
+            # 填補 NaN 為 0 (第一筆)
+            price_diff = df['Close'].diff().fillna(0)
             
-            # 取得對應這 120 天的前一日收盤價 (從原始 df 抓，確保 index 對齊)
-            # 邏輯：plot_data 是 df 的最後 120 筆。我們需要 df 的倒數 121 筆到倒數第 2 筆作為 prev_close
-            prev_closes = df['Close'].iloc[-121:-1].values
+            # 2. 轉換顏色 (整年一起轉，不會錯位)
+            # 邏輯：漲或平盤(>=0) -> 紅, 跌(<0) -> 綠
+            vol_colors_series = price_diff.apply(lambda x: 'red' if x >= 0 else 'green')
             
-            # 建立顏色陣列
-            vol_colors = []
-            for curr, prev in zip(closes, prev_closes):
-                if curr >= prev:
-                    vol_colors.append('red')   # 漲或平盤 -> 紅
-                else:
-                    vol_colors.append('green') # 跌 -> 綠
+            # 3. 最後再切片取出這 120 天的顏色
+            # 因為 plot_data 是 df 的最後 120 筆，所以顏色也取最後 120 筆
+            final_vol_colors = vol_colors_series.iloc[-120:].tolist()
 
-            # 加入成交量副圖
-            ap.append(mpf.make_addplot(plot_data['Volume'], type='bar', panel=1, color=vol_colors, ylabel='Volume'))
+            # 4. 加入成交量副圖
+            ap.append(mpf.make_addplot(plot_data['Volume'], type='bar', panel=1, color=final_vol_colors, ylabel='Volume'))
 
             plot_args = dict(
                 type='candle', 
@@ -305,7 +301,7 @@ if run_btn or stock_id:
             ### 📝 圖表判讀說明
 
             #### 1. 🔍 型態偵測區間詳解
-            * ** KD 鈍化 (極端趨勢)**
+            * ** KD 鈍化 (極端趨勢)**：
                 * **🔥 高檔鈍化** (K > 80 連 3 日)：多頭極強，行情可能噴出。
                 * **⚠️ 低檔鈍化** (K < 20 連 3 日)：空頭極弱，小心殺盤重心。
             * ** 短期型態 (K線轉折)**
