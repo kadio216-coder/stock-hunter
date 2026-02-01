@@ -31,10 +31,13 @@ def get_stock_name(symbol):
 
 def get_data(symbol):
     try:
+        # 下載資料
         df = yf.download(symbol, period="1y", progress=False)
         if isinstance(df.columns, pd.MultiIndex):
             df.columns = [c[0] for c in df.columns]
+        # 強制四捨五入
         df = df.round(2)
+        # 確保資料夠長，至少要有 120 天才能畫長線型態
         return df if len(df) > 120 else None
     except: return None
 
@@ -122,24 +125,35 @@ def check_patterns(df):
         if today['Close'] < neckline:
              signals.append({"name": "Head & Shoulders Top", "type": "pattern", "rect": [p2_h, hs_low, 60], "color": "green"})
 
-    # 5. 三角收斂 (修正版：只抓起點的高低，不抓整個區間的最高最低)
-    ma20 = df['Close'].rolling(20).mean()
-    std20 = df['Close'].rolling(20).std()
-    bw = ((ma20+2*std20) - (ma20-2*std20))/ma20
+    # 5. 三角收斂 (升級版：60日季線等級收斂)
+    # 使用 60 日均線作為基準
+    ma_period = 60
+    ma = df['Close'].rolling(ma_period).mean()
+    std = df['Close'].rolling(ma_period).std()
     
-    if bw.iloc[-5:].min() < 0.15:
-         # 【關鍵修正】
-         # 不要用 iloc[-20:].max()，那樣會抓到區間內最高的刺，導致三角形開口過大
-         # 改用 iloc[-20] (起點) 附近的 3 天高低點，來錨定三角形的開口
-         start_idx = -20
-         # 為了避免單日極端值，取起點附近 3 天的極值
-         start_high = df['High'].iloc[start_idx-3 : start_idx+1].max()
-         start_low = df['Low'].iloc[start_idx-3 : start_idx+1].min()
+    # 布林通道頻寬
+    bw = ((ma + 2*std) - (ma - 2*std)) / ma
+    
+    # 判斷條件：最近 5 天內有出現頻寬小於 20% (季線等級波動大，稍微放寬標準)
+    if bw.iloc[-5:].min() < 0.20:
+         # 尋找三角形的左側起點 (約 60 天前)
+         start_idx = -ma_period
+         
+         # 為了抓到更穩定的開口，取起點附近 5 天的極值
+         # 這樣可以避免因為剛好第 60 天波動小而導致三角形開口畫太小
+         start_high = df['High'].iloc[start_idx-5 : start_idx+5].max()
+         start_low = df['Low'].iloc[start_idx-5 : start_idx+5].min()
          
          current_price = today['Close']
          
-         # 這裡改用黃色 (yellow)
-         signals.append({"name": "Triangle Squeeze", "type": "triangle", "coords": [start_high, start_low, current_price, 20], "color": "yellow"})
+         # 回傳 60 天的三角形座標
+         # [起點高, 起點低, 收斂點(現價), 持續天數]
+         signals.append({
+             "name": "Triangle Squeeze", 
+             "type": "triangle", 
+             "coords": [start_high, start_low, current_price, ma_period], 
+             "color": "yellow"
+         })
 
     # 6. 杯柄/圓弧
     data_ch = df.iloc[-120:]
@@ -261,12 +275,11 @@ if run_btn or stock_id:
                     x_end = total_len - 1
                     x_start = max(0, x_end - duration)
                     
-                    # 定義三角形 (左上, 左下, 右收斂點)
-                    # 這樣畫出來就是一個從左到右收斂的箭頭形狀
+                    # 定義三角形
                     triangle_points = [
-                        [x_start, y_start_high],  # 左上 (起點高)
-                        [x_start, y_start_low],   # 左下 (起點低)
-                        [x_end, y_end]            # 右 (收斂至目前股價)
+                        [x_start, y_start_high],  # 左上 (60天前的高點)
+                        [x_start, y_start_low],   # 左下 (60天前的低點)
+                        [x_end, y_end]            # 右 (現在的收斂點)
                     ]
                     
                     # 使用淡黃色填滿，邊框深一點
@@ -276,6 +289,8 @@ if run_btn or stock_id:
                         linewidth=1.5, edgecolor='#FBC02D', facecolor='#FFF176', alpha=0.3
                     )
                     ax_main.add_patch(tri)
+                
+                # 不顯示文字標籤
 
             st.pyplot(fig)
 
@@ -298,7 +313,7 @@ if run_btn or stock_id:
                     * **箱型整理/突破**：看過去 60 天的高低點區間，波動 < 50%。
                     * **W 底 / M 頭**：比較「最近 10 天」與「20~60 天前」的低點/高點位置。
                     * **頭肩底 / 頭肩頂**：將過去 60 天分為三段 (左肩、頭、右肩) 來比較。
-                    * **三角收斂**：計算布林通道 (20日均線標準差) 的壓縮程度 (近5日低於15%)。
+                    * **三角收斂**：計算布林通道 (60日均線標準差) 的壓縮程度 (近5日低於20%)。
             * ** 長期大底型態**
                 * **偵測區間**：過去 120 個交易日 (約 6 個月 / 半年)
                 * **包含型態**：
