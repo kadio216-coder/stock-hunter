@@ -10,12 +10,35 @@ import matplotlib.pyplot as plt
 st.set_page_config(page_title="股票型態分析", layout="wide")
 st.title("📈 股票型態分析")
 
-# --- 2. 側邊欄輸入 ---
+# --- 2. 側邊欄輸入 (全新搜尋介面) ---
 with st.sidebar:
-    st.header("設定")
-    stock_id = st.text_input("輸入股票代號", value="6271.TW") # 預設改成您的範例 6271
-    st.caption("範例：2330.TW (上市) / 3491.TWO (上櫃)")
+    st.header("🔍 股票搜尋")
     
+    # 市場選擇
+    market_type = st.radio(
+        "市場",
+        options=["台股(市)", "台股(櫃)", "美股"],
+        index=0
+    )
+    
+    # 代碼輸入 (預設 2330)
+    symbol_input = st.text_input("代碼", value="2330")
+    
+    # 自動組合 ticker (避免使用者自己要打 .TW)
+    if market_type == "台股(市)":
+        # 移除可能多打的後綴，確保格式乾淨
+        clean_id = symbol_input.upper().replace(".TW", "").replace(".TWO", "")
+        stock_id = f"{clean_id}.TW"
+    elif market_type == "台股(櫃)":
+        clean_id = symbol_input.upper().replace(".TW", "").replace(".TWO", "")
+        stock_id = f"{clean_id}.TWO"
+    else:
+        # 美股直接用代碼
+        stock_id = symbol_input.upper()
+
+    st.markdown("---")
+    
+    # 選項：是否顯示支撐壓力線
     show_lines = st.checkbox("顯示支撐/壓力線 (虛線)", value=True)
     
     run_btn = st.button("開始分析", type="primary")
@@ -24,6 +47,7 @@ with st.sidebar:
 
 def get_stock_name(symbol):
     try:
+        # 嘗試取得台股名稱
         code = symbol.split('.')[0]
         if code in twstock.codes:
             return twstock.codes[code].name
@@ -94,7 +118,7 @@ def check_patterns(df):
     prev_high = df['High'].iloc[-60:-20].max()
 
     if 0.90 < (recent_low/prev_low) < 1.10 and today['Close'] > recent_low*1.05:
-        # W底 -> 藍色
+        # W底 -> 藍色 (SkyBlue)
         signals.append({"name": "Double Bottom", "duration": 60, "color": "skyblue", "alpha": 0.2})
 
     if 0.90 < (recent_high/prev_high) < 1.10:
@@ -159,12 +183,12 @@ def check_patterns(df):
     return signals
 
 # --- 4. 主程式執行 ---
-if run_btn or stock_id:
+if run_btn or symbol_input:
     with st.spinner(f"正在分析 {stock_id} ..."):
         df = get_data(stock_id)
         
         if df is None:
-            st.error(f"❌ 找不到 {stock_id} 的資料。")
+            st.error(f"❌ 找不到 {stock_id} 的資料。請確認代號或市場是否正確。")
         else:
             stock_name = get_stock_name(stock_id)
             
@@ -222,7 +246,7 @@ if run_btn or stock_id:
                 st.info("👀 目前無特定型態。")
                 title_text = f"{stock_id} Analysis"
 
-            # --- 準備標記資料 ---
+            # --- 標記 (Markers) ---
             marker_series_up = [np.nan] * len(plot_data)
             marker_series_down = [np.nan] * len(plot_data)
             marker_series_dot_high = [np.nan] * len(plot_data)
@@ -275,9 +299,9 @@ if run_btn or stock_id:
             fig, axlist = mpf.plot(plot_data, **plot_args)
             ax_main = axlist[0] 
 
-            # --- 【關鍵修正】繪製背景色塊 (防止顏色疊加變深) ---
+            # --- 繪製全版背景色塊 (防止疊加) ---
             total_len = len(plot_data)
-            drawn_zones = [] # 記錄已經畫過的區域 (start, end, color)
+            drawn_zones = [] 
             
             for sig in signals:
                 if 'duration' in sig:
@@ -288,7 +312,6 @@ if run_btn or stock_id:
                     x_end = total_len - 1
                     x_start = max(0, x_end - duration)
                     
-                    # 檢查是否重複畫過相同的顏色與區間 (避免 W底+頭肩底 疊加變成紫色)
                     zone_key = (x_start, x_end, color)
                     if zone_key not in drawn_zones:
                         ax_main.axvspan(x_start, x_end, facecolor=color, alpha=alpha)
@@ -296,7 +319,7 @@ if run_btn or stock_id:
 
             st.pyplot(fig)
 
-            # --- 說明區 (完全還原版) ---
+            # --- 說明區 (完整保留) ---
             st.markdown("---")
             st.markdown("""
             ### 📝 圖表判讀說明 (完整詳細版)
@@ -304,16 +327,16 @@ if run_btn or stock_id:
             #### 1. 🔍 型態偵測區間與邏輯詳解
             本系統依據不同時間週期的 K 線結構進行型態識別：
             
-            * ** KD 鈍化 (極端趨勢)**：
+            * **📊 KD 鈍化 (極端趨勢)**：
                 * **🔥 高檔鈍化** (K > 80 連 3 日)：顯示多頭氣勢極強，股價可能沿著布林通道上軌噴出，但也需留意過熱拉回。
                 * **⚠️ 低檔鈍化** (K < 20 連 3 日)：顯示空頭氣勢極弱，股價可能沿著布林通道下軌殺盤，但也可能隨時出現反彈。
             
-            * ** 短期型態 (K線轉折)**
+            * **1. 短期型態 (K線轉折)**
                 * **偵測區間**：過去 2 天
                 * **包含型態**：長紅吞噬 (Bullish Engulfing)、錘頭線 (Hammer)
                 * **邏輯**：僅比較「今天」與「昨天」的開盤、收盤、最高與最低價，用來捕捉極短線的轉折訊號。
 
-            * ** 中期波段型態 (最常用)**
+            * **2. 中期波段型態 (最常用)**
                 * **偵測區間**：過去 60 個交易日 (約 3 個月 / 一季)
                 * **包含型態**：
                     * **箱型整理/突破**：計算過去 60 天的高低點區間，若波動幅度 < 50% 且股價在區間內震盪，視為箱型整理。
@@ -321,7 +344,7 @@ if run_btn or stock_id:
                     * **頭肩底 / 頭肩頂**：將過去 60 天分為三段 (左肩、頭、右肩) 來比較高低點相對位置。
                     * **三角收斂**：計算布林通道 (60日均線標準差) 的壓縮程度，若近 5 日頻寬低於 20%，代表波段即將變盤。
 
-            * ** 長期大底型態**
+            * **3. 長期大底型態**
                 * **偵測區間**：過去 120 個交易日 (約 6 個月 / 半年)
                 * **包含型態**：
                     * **杯柄型態 (Cup & Handle)**：因為杯子結構需要時間打底，故抓 120 天來確認左杯緣、杯底和右杯緣的結構。
