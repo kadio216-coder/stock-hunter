@@ -10,7 +10,7 @@ import matplotlib.pyplot as plt
 st.set_page_config(page_title="股票型態分析", layout="wide")
 st.title("📈 股票型態分析")
 
-# --- 2. 側邊欄輸入 (全新搜尋介面) ---
+# --- 2. 側邊欄輸入 ---
 with st.sidebar:
     st.header("🔍 股票搜尋")
     
@@ -21,24 +21,22 @@ with st.sidebar:
         index=0
     )
     
-    # 代碼輸入 (預設 2330)
+    # 代碼輸入
     symbol_input = st.text_input("代碼", value="2330")
     
-    # 自動組合 ticker (避免使用者自己要打 .TW)
+    # 自動組合 ticker
     if market_type == "台股(市)":
-        # 移除可能多打的後綴，確保格式乾淨
         clean_id = symbol_input.upper().replace(".TW", "").replace(".TWO", "")
         stock_id = f"{clean_id}.TW"
     elif market_type == "台股(櫃)":
         clean_id = symbol_input.upper().replace(".TW", "").replace(".TWO", "")
         stock_id = f"{clean_id}.TWO"
     else:
-        # 美股直接用代碼
+        # 美股
         stock_id = symbol_input.upper()
 
     st.markdown("---")
     
-    # 選項：是否顯示支撐壓力線
     show_lines = st.checkbox("顯示支撐/壓力線 (虛線)", value=True)
     
     run_btn = st.button("開始分析", type="primary")
@@ -47,7 +45,6 @@ with st.sidebar:
 
 def get_stock_name(symbol):
     try:
-        # 嘗試取得台股名稱
         code = symbol.split('.')[0]
         if code in twstock.codes:
             return twstock.codes[code].name
@@ -92,14 +89,14 @@ def check_patterns(df):
     today = df.iloc[-1]
     prev = df.iloc[-2]
     
-    # 1. KD 鈍化 (標記用)
+    # 1. KD 鈍化
     last_3_k = df_kd['K'].iloc[-3:]
     if (last_3_k > 80).all():
         signals.append({"name": "KD High Passivation", "type": "marker", "style": "dot_high"})
     elif (last_3_k < 20).all():
         signals.append({"name": "KD Low Passivation", "type": "marker", "style": "dot_low"})
 
-    # 2. 箱型整理 (Box)
+    # 2. 箱型整理
     period_high = df['High'].iloc[-60:-1].max()
     period_low = df['Low'].iloc[-60:-1].min()
     amp = (period_high - period_low) / period_low
@@ -118,12 +115,10 @@ def check_patterns(df):
     prev_high = df['High'].iloc[-60:-20].max()
 
     if 0.90 < (recent_low/prev_low) < 1.10 and today['Close'] > recent_low*1.05:
-        # W底 -> 藍色 (SkyBlue)
         signals.append({"name": "Double Bottom", "duration": 60, "color": "skyblue", "alpha": 0.2})
 
     if 0.90 < (recent_high/prev_high) < 1.10:
         if today['Close'] < df['Low'].iloc[-20:].min():
-             # M頭 -> 綠色
              signals.append({"name": "Double Top (Sell)", "duration": 60, "color": "lightgreen", "alpha": 0.2})
 
     # 4. 頭肩底/頂
@@ -132,7 +127,6 @@ def check_patterns(df):
     p2 = data_hs['Low'].iloc[20:40].min() 
     p3 = data_hs['Low'].iloc[40:].min()
     if (p2 < p1) and (p2 < p3): 
-        # 頭肩底 -> 藍色
         signals.append({"name": "Head & Shoulders Bottom", "duration": 60, "color": "skyblue", "alpha": 0.2})
 
     p1_h = data_hs['High'].iloc[0:20].max()
@@ -141,7 +135,6 @@ def check_patterns(df):
     if (p2_h > p1_h) and (p2_h > p3_h):
         neckline = data_hs['Low'].min()
         if today['Close'] < neckline:
-             # 頭肩頂 -> 綠色
              signals.append({"name": "Head & Shoulders Top", "duration": 60, "color": "lightgreen", "alpha": 0.2})
 
     # 5. 三角收斂
@@ -151,7 +144,6 @@ def check_patterns(df):
     bw = ((ma + 2*std) - (ma - 2*std)) / ma
     
     if bw.iloc[-5:].min() < 0.20:
-         # 三角收斂 -> 黃色
          signals.append({"name": "Triangle Squeeze", "duration": 60, "color": "yellow", "alpha": 0.2})
 
     # 6. 杯柄/圓弧
@@ -166,7 +158,6 @@ def check_patterns(df):
     mid_low = df['Low'].iloc[-80:-40].mean()
     start_high = df['High'].iloc[-120:-100].mean()
     if (mid_low < start_high * 0.8):
-        # 圓弧底 -> 藍色
         signals.append({"name": "Rounding Bottom", "duration": 120, "color": "skyblue", "alpha": 0.2})
 
     # 7. K線型態
@@ -211,9 +202,20 @@ if run_btn or symbol_input:
             pct_change = (last_change / plot_data['Close'].iloc[-2]) * 100
             
             st.subheader(f"{stock_name} ({stock_id})")
+            
+            # --- 【關鍵修正】成交量單位判斷 ---
             col1, col2, col3 = st.columns(3)
             col1.metric("收盤價", f"{last_price:.2f}", f"{last_change:.2f} ({pct_change:.2f}%)")
-            col2.metric("成交量", f"{int(last_vol/1000)} 張")
+            
+            # 判斷是台股還是美股
+            if stock_id.endswith(('.TW', '.TWO')):
+                # 台股：顯示「張」 (除以1000)
+                vol_str = f"{int(last_vol/1000)} 張"
+            else:
+                # 美股：顯示「股」 (加逗號，不除以1000)
+                vol_str = f"{int(last_vol):,} 股"
+                
+            col2.metric("成交量", vol_str)
             col3.markdown(f"**資料日期**: {plot_data.index[-1].date()}")
             
             signals = check_patterns(df)
@@ -299,7 +301,7 @@ if run_btn or symbol_input:
             fig, axlist = mpf.plot(plot_data, **plot_args)
             ax_main = axlist[0] 
 
-            # --- 繪製全版背景色塊 (防止疊加) ---
+            # --- 背景色塊 ---
             total_len = len(plot_data)
             drawn_zones = [] 
             
@@ -319,7 +321,7 @@ if run_btn or symbol_input:
 
             st.pyplot(fig)
 
-            # --- 說明區 (完整保留) ---
+            # --- 說明區 (完整詳細版) ---
             st.markdown("---")
             st.markdown("""
             ### 📝 圖表判讀說明 (完整詳細版)
